@@ -1,11 +1,27 @@
 ---
 name: paper-workflow
-description: "论文全流程综合工具：检索论文并验证DOI、按四维度总结论文（中文摘要+公式推导+思路脉络+图表解读）、生成LaTeX PDF、标注Zotero标签。当用户说'总结论文''分析这篇论文''帮我读论文''论文工作流'时触发。自动调度crossref-doi-verification、literature-summary、latex-iterative-refinement等子skill。"
+description: "论文全流程综合工具（适配Codex/Claude/WorkBuddy）：检索论文并验证DOI、按四维度总结论文（中文摘要+公式推导+思路脉络+图表解读）、PDF转Markdown、生成LaTeX PDF、标注Zotero标签。当用户说'总结论文''分析这篇论文''帮我读论文''论文工作流'时触发。自动调度crossref-doi-verification、literature-summary、latex-iterative-refinement、convert-documents-to-markdown等子skill。"
 ---
 
 # 论文全流程综合工具
 
-> 从检索到总结到LaTeX生成的一站式论文工作流。
+> 从检索到总结到LaTeX生成的一站式论文工作流。适配 Claude Code、OpenAI Codex、WorkBuddy 等多平台。
+
+## 平台适配说明
+
+本 skill 设计为**平台无关**，核心逻辑在所有支持 Skill 系统的 AI 编码助手中通用：
+
+| 平台 | 适配状态 | 说明 |
+|---|---|---|
+| **Claude Code** | 原生支持 | 完整功能，所有子 skill 可直接调度 |
+| **OpenAI Codex** | 适配 | 使用 Codex 的 Skill 系统，PDF 处理依赖 `@firecrawl/anydoc` CLI |
+| **WorkBuddy** | 适配 | 使用 WorkBuddy 的 Skill 加载机制，工作流逻辑完全兼容 |
+
+**跨平台注意事项**：
+- PDF 转 Markdown 统一使用 `convert-documents-to-markdown` skill（基于 `@firecrawl/anydoc`）
+- LaTeX 编译需要本地安装 `xelatex`（TeX Live 或 MiKTeX）
+- Zotero 集成需要本地 Zotero 数据库访问权限
+- 公式验证需要 `pdftoppm`（Poppler 工具包）
 
 ## 触发条件
 
@@ -13,6 +29,7 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 - "论文工作流" / "paper workflow"
 - 用户提供PDF/DOI/论文标题，要求全面总结
 - 要求生成论文的LaTeX排版总结文档
+- 要求将PDF转换为Markdown格式
 
 ## 工作流总览
 
@@ -35,7 +52,7 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 | 关键词/标题检索 | `giiisp-paper-search-apis` | 调用集思谱API检索，输出候选论文列表 |
 | 深度调研 | `sci-employee-deep-research` | 需要系统性文献调研时 |
 | 已知DOI需验证 | `crossref-doi-verification` | 验证DOI真实性，获取元数据和摘要 |
-| 本地PDF文件 | `pdf-extractor` → `crossref-doi-verification` | 先提取文本，再用标题反查DOI |
+| 本地PDF文件 | `convert-documents-to-markdown` → `crossref-doi-verification` | 先将PDF转为Markdown提取文本，再用标题反查DOI |
 
 **执行步骤**:
 
@@ -53,18 +70,28 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 
 **输入**: 论文PDF全文 + 论文信息卡片
 
+**PDF处理优先使用 `convert-documents-to-markdown`**：
+
+```bash
+# 将PDF转为Markdown（推荐）
+npx -y @firecrawl/anydoc paper.pdf -o paper.md
+
+# 如果转换失败（扫描件需要OCR）
+npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
+```
+
 **调度规则**:
 
 | 维度 | 方法 | 输出格式 |
 |---|---|---|
-| 中文摘要+核心贡献 | 阅读PDF后提炼 | 结构化中文段落 |
+| 中文摘要+核心贡献 | 阅读Markdown/PDF后提炼 | 结构化中文段落 |
 | 公式逐步推导 | `paper-formula-fidelity-check` + `paper-formula-image-verification` | 逐步展开+物理含义 |
 | 论文思路脉络 | 分析论文结构 | 流程图/脉络图 |
 | 关键图表解读 | 提取并解读图表 | 图表编号+说明 |
 
 **执行步骤**:
 
-1. 用 `pdf-extractor` 或 `convert-documents-to-markdown` 提取PDF全文
+1. 用 `convert-documents-to-markdown` 将PDF转为Markdown（首选），或 `pdf-extractor` 提取文本
 2. 用 `paper-formula-image-verification` 渲染PDF页面为PNG，以图片为准核对公式
 3. 按四维度模板生成总结（模板见 `references/summary-template.md`）
 4. 如论文在Zotero中，读取其标签和分类信息
@@ -214,8 +241,8 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 | 检索 | `giiisp-paper-search-apis` | 插件: research-copilot |
 | 深度调研 | `sci-employee-deep-research` | 插件: research-copilot |
 | DOI验证 | `crossref-doi-verification` | 用户级skills |
-| PDF提取 | `pdf-extractor` | 用户级skills |
-| 文档转换 | `convert-documents-to-markdown` | 用户级skills |
+| **PDF转Markdown** | **`convert-documents-to-markdown`** | **用户级skills（核心依赖）** |
+| PDF提取 | `pdf-extractor` | 用户级skills（备用） |
 | 公式核对 | `paper-formula-fidelity-check` | 用户级skills |
 | 公式验证 | `paper-formula-image-verification` | 用户级skills |
 | 文献总结 | `literature-summary` | 用户级skills |
@@ -231,7 +258,7 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 **示例1: 给一篇PDF做全面总结**
 ```
 用户: 帮我总结这篇论文 [附PDF]
-→ 阶段1: pdf-extractor提取 + crossref验证DOI
+→ 阶段1: convert-documents-to-markdown转Markdown + crossref验证DOI
 → 阶段2: 四维度总结
 → 阶段3: 生成LaTeX PDF
 → 阶段4: 检查Zotero标签
@@ -251,6 +278,13 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 → 阶段3: latex-iterative-refinement编译
 ```
 
+**示例4: 将PDF转为Markdown**
+```
+用户: 把这篇PDF转成Markdown
+→ 直接调用 convert-documents-to-markdown
+→ 输出 .md 文件
+```
+
 ## 注意事项
 
 1. **DOI必须验证**: 绝不凭记忆写DOI，必须通过Crossref API验证
@@ -258,3 +292,20 @@ description: "论文全流程综合工具：检索论文并验证DOI、按四维
 3. **编译用xelatex**: 中文文档必须用xelatex，不用pdflatex
 4. **WPS打开PDF**: 编译后用WPS打开，不用系统默认阅读器
 5. **聊天公式用Unicode**: 对话中用Unicode数学符号，不用LaTeX原始语法
+6. **PDF转Markdown优先**: 阶段2优先使用 `convert-documents-to-markdown`，失败时回退到 `pdf-extractor`
+
+---
+
+## 版权与致谢
+
+本 skill 的设计与实现借鉴、结合了以下来源：
+
+- **网络公开 Skill**：参考了 开源社区、GitHub 上开源的 AI 编码助手 Skill 设计模式
+- **开源数据**：部分工作流逻辑参考了 GitHub 上的开源论文处理工具和研究工作流项目
+- **API 服务**：集成了 Crossref、OpenAlex、Giiisp/集思谱等公开学术 API
+
+本 skill 基于 MIT 许可证开源。如引用内容涉及您的知识产权，请随时联系，我们将及时修改或删除。
+
+**作者**: zyj-cool
+**仓库**: https://github.com/zyj-cool/paper-learning-assistant
+**许可证**: MIT
