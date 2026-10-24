@@ -1,5 +1,5 @@
 ---
-name: paper_LearningAssisstant
+name: Paper Learning Assistant（论文学习助手）
 description: "论文全流程综合工具（适配Codex/Claude/WorkBuddy）：检索论文并验证DOI、按四维度总结论文（中文摘要+公式推导+思路脉络+图表解读）、PDF转Markdown、生成LaTeX PDF、标注Zotero标签。当用户说'总结论文''分析这篇论文''帮我读论文''论文工作流'时触发。自动调度crossref-doi-verification、literature-summary、latex-iterative-refinement、convert-documents-to-markdown等子skill。"
 ---
 
