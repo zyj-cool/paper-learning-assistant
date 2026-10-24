@@ -25,7 +25,7 @@
 
 ![技能架构图](assets/skills-architecture.png)
 
-> 三层架构：**文献检索层** → **论文理解层** → **输出与排版层**，由 `paper-workflow` 统一调度，`research-mentor` 作为综合入口覆盖写作、审稿、投稿、绘图全流程。
+> 三层架构：**文献检索层** → **论文理解层** → **输出与排版层**，由 `paper-workflow-pro` 统一调度，`research-mentor` 作为综合入口覆盖写作、审稿、投稿、绘图全流程。
 
 ---
 
@@ -35,7 +35,7 @@
 
 | Skill | 一句话说明 | 触发词 |
 |---|---|---|
-| **paper-workflow** | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注，一站式完成 | "总结论文""帮我读论文""论文工作流" |
+| **paper-workflow-pro** | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注，一站式完成 | "总结论文""帮我读论文""论文工作流" |
 | **latex-academic-paper-explanation** | 论文详解工具。深度解读单篇论文，生成六章结构LaTeX文档 | "论文详解""详细解读""整理成文档" |
 
 ### 文献检索与验证
@@ -98,7 +98,7 @@ cp -r paper-learning-assistant/* ~/.workbuddy/skills/
 **场景 1：拿到一篇 PDF，快速总结**
 ```
 你: 帮我总结这篇论文 [附PDF]
-AI: [自动触发 paper-workflow]
+AI: [自动触发 paper-workflow-pro]
   → convert-documents-to-markdown 转 Markdown + crossref 验证DOI
   → 四维度总结（摘要/公式/脉络/图表）
   → 生成LaTeX PDF
@@ -144,11 +144,11 @@ AI: [自动触发 convert-documents-to-markdown]
 
 ## 技能间的协作关系
 
-这套技能不是孤立存在的，它们通过 `paper-workflow` 统一调度，形成完整闭环：
+这套技能不是孤立存在的，它们通过 `paper-workflow-pro` 统一调度，形成完整闭环：
 
 ![协作关系流程图](assets/workflow-flowchart.png)
 
-每个环节都可以**单独使用**，也可以**串联执行**。比如你可以只用 `crossref-doi-verification` 验证一个 DOI，也可以让 `paper-workflow` 自动走完整个流程。
+每个环节都可以**单独使用**，也可以**串联执行**。比如你可以只用 `crossref-doi-verification` 验证一个 DOI，也可以让 `paper-workflow-pro` 自动走完整个流程。
 
 ---
 
@@ -172,7 +172,7 @@ AI: [自动触发 convert-documents-to-markdown]
 ## 更新日志
 
 ### 2026-10-24
-- 新增 `paper-workflow`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy
+- 新增 `paper-workflow-pro`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy
 - 集成 `convert-documents-to-markdown`：PDF 转 Markdown 作为核心依赖
 - 补全 `latex-academic-paper-explanation`：论文详解工具，六章深度解读
 - 同步所有现有论文相关 skill 到仓库
