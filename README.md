@@ -17,31 +17,9 @@
 
 ## 技能全景图
 
-```
-                    ┌─────────────────────────────────────────┐
-                    │           paper-workflow (总调度)         │
-                    │   检索 → 总结 → LaTeX → Zotero 一站式    │
-                    ──────┬──────────┬──────────┬────────────┘
-                           │          │          │
-              ┌────────────┘          │          └────────────┐
-              ▼                       ▼                       ▼
-     ┌────────────────┐    ┌──────────────────┐    ──────────────────┐
-     │   文献检索层    │    │   论文理解层      │    │   输出与排版层    │
-     ├────────────────┤    ├──────────────────┤    ├──────────────────
-     │ giiisp 论文检索 │    │ literature-summary│    │ latex-iterative  │
-     │ deep-research  │    │ pdf-extractor    │    │ -refinement      │
-     │ scispark       │    │ paper-formula-*  │    │ latex-cjk-pdf    │
-     │ DOI 验证       │    │ paper-workflow   │    │ -verify-loop     │
-     │                │    │ paper-explanation│    │ convert-documents│
-     └────────────────┘    └──────────────────┘    └──────────────────┘
-              │                       │                       │
-              └───────────────────────┼───────────────────────┘
-                                      ▼
-                          ┌───────────────────────┐
-                          │  research-mentor (导师) │
-                          │  写作·审稿·投稿·绘图    │
-                          └───────────────────────┘
-```
+![技能架构图](assets/skills-architecture.png)
+
+> 三层架构：**文献检索层** → **论文理解层** → **输出与排版层**，由 `paper-workflow` 统一调度，`research-mentor` 作为综合入口覆盖写作、审稿、投稿、绘图全流程。
 
 ---
 
@@ -149,7 +127,7 @@ AI: [自动触发 paper-formula-fidelity-check]
 这套技能不是孤立存在的，它们通过 `paper-workflow` 统一调度，形成完整闭环：
 
 ```
-检索论文 ──→ 验证DOI ──→ 提取PDF ──→ 四维度总结 ──→ LaTeX排版 ──→ Zotero归档
+检索论文 ──→ 验证DOI ──→ 提取PDF ──→ 四维度总结 ─→ LaTeX排版 ──→ Zotero归档
    │            │            │            │              │             │
    │            │            │            │              │             │
 giiisp      crossref     pdf-extractor  paper-workflow  latex-iter-   literature-
@@ -180,13 +158,13 @@ paper-learning-assistant/
 │       ├── workflow-guide.md    # 详细操作指南
 │       └── summary-template.md  # 四维度总结模板
 ── latex-academic-paper-explanation/  # 论文详解工具
-│   ── SKILL.md
+│   └── SKILL.md
 ├── crossref-doi-verification/   # DOI 验证
 ├── literature-summary/          # Zotero 文献总结
 ├── latex-iterative-refinement/  # LaTeX 迭代编译
 ├── latex-cjk-pdf-verify-loop/   # LaTeX 快速编译
 ├── latex-iterative-edit-verify/ # LaTeX 交互编辑
-├── paper-formula-fidelity-check/    # 公式核对
+── paper-formula-fidelity-check/    # 公式核对
 ├── paper-formula-image-verification/ # 公式图像验证
 ├── pdf-extractor/               # PDF 提取
 ├── convert-documents-to-markdown/   # 文档转换
