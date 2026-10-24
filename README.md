@@ -146,13 +146,7 @@ AI: [自动触发 convert-documents-to-markdown]
 
 这套技能不是孤立存在的，它们通过 `paper-workflow` 统一调度，形成完整闭环：
 
-```
-检索论文 ──→ 验证DOI ──→ PDF转Markdown ──→ 四维度总结 ──→ LaTeX排版 ──→ Zotero归档
-   │            │              │              │              │             │
-   │            │              │              │              │             │
-giiisp      crossref    convert-documents  paper-workflow  latex-iter-   literature-
-            -doi-verif.   -to-markdown      + formula-check -refinement   summary
-```
+![协作关系流程图](assets/workflow-flowchart.png)
 
 每个环节都可以**单独使用**，也可以**串联执行**。比如你可以只用 `crossref-doi-verification` 验证一个 DOI，也可以让 `paper-workflow` 自动走完整个流程。
 
@@ -171,27 +165,7 @@ giiisp      crossref    convert-documents  paper-workflow  latex-iter-   literat
 
 ## 目录结构
 
-```
-paper-learning-assistant/
-├── paper-workflow/              # 论文全流程综合工具（总调度）
-│   ├── SKILL.md
-│   └── references/
-│       ├── workflow-guide.md    # 详细操作指南
-│       └── summary-template.md  # 四维度总结模板
-── latex-academic-paper-explanation/  # 论文详解工具
-│   └── SKILL.md
-├── crossref-doi-verification/   # DOI 验证
-├── literature-summary/          # Zotero 文献总结
-├── latex-iterative-refinement/  # LaTeX 迭代编译
-├── latex-cjk-pdf-verify-loop/   # LaTeX 快速编译
-├── latex-iterative-edit-verify/ # LaTeX 交互编辑
-── paper-formula-fidelity-check/    # 公式核对
-├── paper-formula-image-verification/ # 公式图像验证
-├── pdf-extractor/               # PDF 提取
-├── convert-documents-to-markdown/   # 文档转换（PDF→Markdown）
-├── research-mentor/             # 科研导师（综合入口）
-── qmind-knowledge/             # QMind 知识库
-```
+![目录结构图](assets/directory-structure.png)
 
 ---
 
