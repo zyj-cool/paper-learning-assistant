@@ -1,0 +1,260 @@
+---
+name: paper-workflow
+description: "论文全流程综合工具：检索论文并验证DOI、按四维度总结论文（中文摘要+公式推导+思路脉络+图表解读）、生成LaTeX PDF、标注Zotero标签。当用户说'总结论文''分析这篇论文''帮我读论文''论文工作流'时触发。自动调度crossref-doi-verification、literature-summary、latex-iterative-refinement等子skill。"
+---
+
+# 论文全流程综合工具
+
+> 从检索到总结到LaTeX生成的一站式论文工作流。
+
+## 触发条件
+
+- "总结这篇论文" / "帮我读论文" / "分析这篇论文"
+- "论文工作流" / "paper workflow"
+- 用户提供PDF/DOI/论文标题，要求全面总结
+- 要求生成论文的LaTeX排版总结文档
+
+## 工作流总览
+
+```
+阶段1: 检索与定位 → 阶段2: 四维度总结 → 阶段3: LaTeX生成 → 阶段4: Zotero标注
+```
+
+每个阶段可独立执行，也可串联完成全流程。
+
+---
+
+## 阶段1: 论文检索与DOI验证
+
+**输入**: 论文标题 / 关键词 / PDF文件 / 已知DOI
+
+**调度规则**:
+
+| 输入类型 | 调用skill | 说明 |
+|---|---|---|
+| 关键词/标题检索 | `giiisp-paper-search-apis` | 调用集思谱API检索，输出候选论文列表 |
+| 深度调研 | `sci-employee-deep-research` | 需要系统性文献调研时 |
+| 已知DOI需验证 | `crossref-doi-verification` | 验证DOI真实性，获取元数据和摘要 |
+| 本地PDF文件 | `pdf-extractor` → `crossref-doi-verification` | 先提取文本，再用标题反查DOI |
+
+**执行步骤**:
+
+1. 根据输入类型选择检索方式
+2. 获取论文元数据（标题、作者、期刊、年份、DOI）
+3. 用 `crossref-doi-verification` 验证DOI（**绝不凭记忆写DOI**）
+4. 下载或定位PDF全文
+5. 输出验证后的论文信息卡片
+
+**输出**: 论文信息卡片（标题、作者、期刊、年份、已验证DOI、摘要）
+
+---
+
+## 阶段2: 四维度论文总结
+
+**输入**: 论文PDF全文 + 论文信息卡片
+
+**调度规则**:
+
+| 维度 | 方法 | 输出格式 |
+|---|---|---|
+| 中文摘要+核心贡献 | 阅读PDF后提炼 | 结构化中文段落 |
+| 公式逐步推导 | `paper-formula-fidelity-check` + `paper-formula-image-verification` | 逐步展开+物理含义 |
+| 论文思路脉络 | 分析论文结构 | 流程图/脉络图 |
+| 关键图表解读 | 提取并解读图表 | 图表编号+说明 |
+
+**执行步骤**:
+
+1. 用 `pdf-extractor` 或 `convert-documents-to-markdown` 提取PDF全文
+2. 用 `paper-formula-image-verification` 渲染PDF页面为PNG，以图片为准核对公式
+3. 按四维度模板生成总结（模板见 `references/summary-template.md`）
+4. 如论文在Zotero中，读取其标签和分类信息
+
+**四维度总结模板**:
+
+### 2.1 中文摘要与核心贡献
+
+```
+【研究背景】1-2句话说明研究领域和待解决问题
+【核心问题】论文要解决的具体问题
+【方法】提出的方法/模型/算法，一句话概括
+【关键创新】与已有工作的区别（2-3点）
+【主要结论】核心实验结果和结论
+【局限性】作者承认的不足或可改进方向
+```
+
+### 2.2 公式逐步推导
+
+对论文中的每个核心公式，按以下格式展开：
+
+```
+公式编号: (X)
+原始形式: [LaTeX公式]
+推导步骤:
+  步骤1: [从哪来，用了什么假设/定理]
+  步骤2: [中间变换，说明每步的数学操作]
+  ...
+物理/工程含义: [这个公式说明了什么]
+符号说明: [每个符号的含义和单位]
+```
+
+**重要**: 公式必须以PDF渲染图为准（用 `paper-formula-fidelity-check`），禁止凭OCR文本转录。
+
+### 2.3 论文思路脉络
+
+```
+问题提出 → 动机分析 → 方法设计 → 理论分析 → 实验验证 → 结论
+    ↑           ↑           ↑           ↑           ↑
+ [什么缺口]  [为什么现有  [核心idea   [收敛性/    [对比baselines
+             方法不行]    是什么]     稳定性证明]  消融实验]
+```
+
+标注关键转折点（如"作者在此处指出已有方法的XX缺陷，因此提出YY"）。
+
+### 2.4 关键图表解读
+
+对论文中每个重要图表：
+
+```
+图X: [图题]
+位置: 第N页
+内容: [图中展示了什么]
+说明: [这个图支撑了论文的哪个论点]
+关键观察: [从图中能读出的关键信息]
+```
+
+---
+
+## 阶段3: LaTeX PDF生成
+
+**输入**: 四维度总结内容
+
+**调度规则**:
+
+| 需求 | 调用skill |
+|---|---|
+| 编辑tex并编译 | `latex-iterative-refinement` |
+| 快速编译验证 | `latex-cjk-pdf-verify-loop` |
+| 聊天中问答后写入 | `latex-iterative-edit-verify` |
+
+**执行步骤**:
+
+1. 根据总结内容生成LaTeX源文件（使用ctex/xeCJK中文支持）
+2. 用 `latex-iterative-refinement` 闭环编译：
+   - `xelatex` 编译 → 检查日志 → 修复错误 → 重新编译
+   - `pdftoppm` 渲染关键页 → 视觉验证
+   - WPS打开PDF供用户确认
+3. 迭代修改直到用户满意
+
+**LaTeX模板要点**:
+
+```latex
+\documentclass[12pt,a4paper]{ctexart}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{tcolorbox}
+\tcbuselibrary{breakable}
+
+\title{论文总结: [论文标题]}
+\author{自动生成}
+\date{\today}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+\section{论文信息}
+% 标题、作者、期刊、DOI链接
+
+\section{中文摘要与核心贡献}
+% 四维度2.1内容
+
+\section{公式推导}
+% 四维度2.2内容，每个公式一个subsection
+
+\section{论文思路脉络}
+% 四维度2.3内容，可用tikz画流程图
+
+\section{关键图表解读}
+% 四维度2.4内容
+
+\section{个人思考与延伸}
+% 可选：对该论文的评注和后续研究方向
+
+\end{document}
+```
+
+---
+
+## 阶段4: Zotero标注（简单集成）
+
+**输入**: 论文信息 + 总结内容
+
+**执行步骤**:
+
+1. 检查论文是否已在Zotero库中（通过DOI匹配）
+2. 如在库中：
+   - 读取该论文的Zotero标签和分类
+   - 在总结文档中标注：`【Zotero标签: tag1, tag2 | 分类: collection_name】`
+   - 读取用户在该论文上的笔记（如有），融入总结
+3. 如不在库中：
+   - 提示用户可手动添加到Zotero
+   - 建议标签（基于论文关键词自动生成）
+
+**调度**: 使用 `literature-summary` skill中的Zotero数据库查询逻辑（读取 `zotero.sqlite`）。
+
+---
+
+## 子Skill索引
+
+本skill调度以下已有skill，按需加载：
+
+| 阶段 | Skill名称 | 路径 |
+|---|---|---|
+| 检索 | `giiisp-paper-search-apis` | 插件: research-copilot |
+| 深度调研 | `sci-employee-deep-research` | 插件: research-copilot |
+| DOI验证 | `crossref-doi-verification` | 用户级skills |
+| PDF提取 | `pdf-extractor` | 用户级skills |
+| 文档转换 | `convert-documents-to-markdown` | 用户级skills |
+| 公式核对 | `paper-formula-fidelity-check` | 用户级skills |
+| 公式验证 | `paper-formula-image-verification` | 用户级skills |
+| 文献总结 | `literature-summary` | 用户级skills |
+| LaTeX编译 | `latex-iterative-refinement` | 用户级skills |
+| LaTeX快速编译 | `latex-cjk-pdf-verify-loop` | 用户级skills |
+| LaTeX交互编辑 | `latex-iterative-edit-verify` | 用户级skills |
+| 论文详解 | `latex-academic-paper-explanation` | 用户级skills |
+| 引用审计 | `papercheck` | 插件: research-copilot |
+| 科研导师 | `research-mentor` | 用户级skills |
+
+## 快速使用示例
+
+**示例1: 给一篇PDF做全面总结**
+```
+用户: 帮我总结这篇论文 [附PDF]
+→ 阶段1: pdf-extractor提取 + crossref验证DOI
+→ 阶段2: 四维度总结
+→ 阶段3: 生成LaTeX PDF
+→ 阶段4: 检查Zotero标签
+```
+
+**示例2: 检索并总结某方向论文**
+```
+用户: 帮我找几篇关于CBF多机器人避碰的最新论文并总结
+→ 阶段1: giiisp-paper-search-apis检索
+→ 阶段2: 对每篇论文做四维度总结
+→ 阶段3: 汇总生成对比LaTeX文档
+```
+
+**示例3: 只生成LaTeX总结文档**
+```
+用户: 把刚才的论文总结生成PDF
+→ 阶段3: latex-iterative-refinement编译
+```
+
+## 注意事项
+
+1. **DOI必须验证**: 绝不凭记忆写DOI，必须通过Crossref API验证
+2. **公式以图为准**: 公式核对必须用PDF渲染图，不用OCR文本
+3. **编译用xelatex**: 中文文档必须用xelatex，不用pdflatex
+4. **WPS打开PDF**: 编译后用WPS打开，不用系统默认阅读器
+5. **聊天公式用Unicode**: 对话中用Unicode数学符号，不用LaTeX原始语法
