@@ -36,7 +36,7 @@
 | Skill | 一句话说明 | 触发词 |
 |---|---|---|
 | **Paper Learning Assistant（论文学习助手）** | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注，一站式完成 | "总结论文""帮我读论文""论文工作流" |
-| **latex_academic_paper_explanation** | 论文详解工具。深度解读单篇论文，生成六章结构LaTeX文档 | "论文详解""详细解读""整理成文档" |
+| **latex-academic-paper-explanation** | 论文详解工具。深度解读单篇论文，生成六章结构LaTeX文档 | "论文详解""详细解读""整理成文档" |
 
 ### 文献检索与验证
 
@@ -108,7 +108,7 @@ AI: [自动触发 Paper Learning Assistant（论文学习助手）]
 **场景 2：深度精读一篇论文**
 ```
 你: 论文详解 [附PDF]
-AI: [自动触发 latex_academic_paper_explanation]
+AI: [自动触发 latex-academic-paper-explanation]
   → 六章详解文档（概览/背景/方法/理论/实验/思考）
   → 编译为LaTeX PDF
   → WPS打开
@@ -174,7 +174,7 @@ AI: [自动触发 convert-documents-to-markdown]
 ### 2026-10-24
 - 新增 `Paper Learning Assistant（论文学习助手）`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy
 - 集成 `convert-documents-to-markdown`：PDF 转 Markdown 作为核心依赖
-- 补全 `latex_academic_paper_explanation`：论文详解工具，六章深度解读
+- 补全 `latex-academic-paper-explanation`：论文详解工具，六章深度解读
 - 同步所有现有论文相关 skill 到仓库
 
 ---

@@ -1,5 +1,5 @@
 ---
-name: latex_academic_paper_explanation
+name: latex-academic-paper-explanation
 description: "论文详解工具：将论文核心内容（摘要、引言、方法、公式推导、实验、结论）整理为结构化中文详解文档，并编译为LaTeX PDF。当用户说'论文详解''详细解读这篇论文''把论文内容整理成文档'时触发。侧重深度解读而非快速总结。"
 ---
 
