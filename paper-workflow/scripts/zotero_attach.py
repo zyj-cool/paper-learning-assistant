@@ -66,6 +66,18 @@ from secrets import choice
 KEY_CHARS = "23456789ABCDEFGHIJKLMNPQRSTUVWXYZ"
 KEY_LEN = 8
 
+# 常见扩展名 → Zotero contentType（不要一律写 application/pdf）
+CONTENT_TYPES = {
+    ".pdf": "application/pdf",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".doc": "application/msword",
+    ".md": "text/markdown",
+    ".tex": "application/x-tex",
+    ".txt": "text/plain",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+}
+
 
 def default_data_dir():
     home = os.path.expanduser("~")
@@ -240,6 +252,7 @@ def main():
         title_fid = fields[0][0]
 
         existing_keys = set(r[0] for r in cur.execute("SELECT key FROM items"))
+        created_folders = []
         cur.execute("SELECT MAX(itemID) FROM items")
         next_id = (cur.fetchone()[0] or 0) + 1
         now = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -262,6 +275,7 @@ def main():
             new_key = gen_key(existing_keys)
             folder = os.path.join(storage_dir, new_key)
             os.makedirs(folder, exist_ok=True)
+            created_folders.append(folder)
 
             fname = os.path.basename(j["file"]).replace("/", "_").replace("\\", "_")
             dst = os.path.join(folder, fname)
@@ -270,6 +284,8 @@ def main():
             with open(dst, "rb") as f:
                 md5 = hashlib.md5(f.read()).hexdigest()
             mtime_ms = int(os.path.getmtime(dst) * 1000)
+            ctype = CONTENT_TYPES.get(os.path.splitext(fname)[1].lower(),
+                                      "application/octet-stream")
 
             # 1) items
             cur.execute(
@@ -282,11 +298,13 @@ def main():
                 "INSERT INTO itemAttachments (itemID, parentItemID, linkMode, contentType, "
                 "charsetID, path, syncState, storageModTime, storageHash, "
                 "lastProcessedModificationTime, lastRead) VALUES (?,?,?,?,?,?,?,?,?,?,NULL)",
-                (next_id, parent_id, 0, "application/pdf", None,
+                (next_id, parent_id, 0, ctype, None,
                  f"storage:{fname}", 0, mtime_ms, md5, None))
             # 3) itemDataValues + itemData（附件显示标题）
-            cur.execute("INSERT INTO itemDataValues (value) VALUES (?)", (j["title"],))
-            val_id = cur.lastrowid
+            # 注意：itemDataValues.value 有 UNIQUE 约束，重复标题必须复用同一个 valueID
+            cur.execute("INSERT OR IGNORE INTO itemDataValues (value) VALUES (?)", (j["title"],))
+            val_id = cur.execute(
+                "SELECT valueID FROM itemDataValues WHERE value = ?", (j["title"],)).fetchone()[0]
             cur.execute("INSERT INTO itemData (itemID, fieldID, valueID) VALUES (?,?,?)",
                         (next_id, title_fid, val_id))
 
@@ -312,6 +330,10 @@ def main():
 
     except Exception as e:
         con.rollback()
+        for folder in created_folders:
+            shutil.rmtree(folder, ignore_errors=True)
+        if created_folders:
+            print(f"[清理] 已移除 {len(created_folders)} 个未登记的存储文件夹", file=sys.stderr)
         print(f"\n[失败] 已回滚数据库写入。错误: {e}", file=sys.stderr)
         print(f"[提示] 如需回滚备份: 退出 Zotero 后用 {backup_path} 覆盖 {db_path}", file=sys.stderr)
         sys.exit(1)
