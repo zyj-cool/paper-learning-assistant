@@ -18,15 +18,26 @@ Zotero 的附件列表以 **sqlite 数据库记录** 为准，而不是以文件
 
 前置条件
 --------
-必须先 **完全退出 Zotero**（含托盘图标），否则 sqlite 被占用且 Zotero 内存
-状态会与数据库不一致。脚本会自动检测进程并在运行中报错退出。
+两种写入模式，按需选择：
+
+【推荐】本地 API 模式（--api）：Zotero **运行中**直接写入，无需退出。
+  要求 Zotero 10+，且 设置→高级 勾选“允许此计算机上的其他应用程序与 Zotero 通信”。
+  首次写入会弹窗授权，请点 “Always Allow”（密钥缓存于 ~/.zotero_attach_local_key.json）。
+  改动立即在 UI 可见、正常参与同步、自动维护全文索引。
+
+sqlite 直写模式（默认）：必须先 **完全退出 Zotero**（含托盘图标），否则 sqlite
+被占用且 Zotero 内存状态会与数据库不一致。脚本会自动检测进程并在运行中报错退出。
 
 用法
 ----
     # 先预演检查（默认行为：不加 --confirm 绝不写入）
     python zotero_attach.py --file "解析.pdf" --parent-key XXXXXXXX --title "论文解析"
 
-    # 确认无误后实际写入
+    # API 模式（Zotero 运行中，无需退出；首次会弹窗授权）
+    python zotero_attach.py --api --file "解析.pdf" --parent-key XXXXXXXX --title "论文解析" --confirm
+    python zotero_attach.py --api-probe          # 只探测本地 API 是否可用
+
+    # sqlite 模式（需先完全退出 Zotero）
     python zotero_attach.py --file "解析.pdf" --parent-key XXXXXXXX --title "论文解析" --confirm
 
     # 按论文标题匹配父条目（必须唯一匹配）
@@ -60,6 +71,9 @@ import sqlite3
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from secrets import choice
 
 # Zotero 生成 item key 使用的字符集（不含 0/1/I/O，避免歧义）
@@ -123,6 +137,313 @@ def gen_key(existing):
             return k
 
 
+# =====================================================================
+# 本地 API 模式（Zotero 10+，Zotero 运行中直接写入，无需退出）
+# =====================================================================
+#
+# 官方文档: https://www.zotero.org/support/dev/web_api/v3/local_api
+# 要点：
+#   - 需 Zotero 10+，且 设置→高级 勾选“允许此计算机上的其他应用程序与 Zotero 通信”；
+#   - 读请求无需认证；写请求需 Zotero-Server-ID + Zotero-API-Key；
+#   - 写密钥通过 POST /api/local/authorize 运行时弹窗获取（用户点 Always Allow 后可复用）；
+#   - 通过 API 写入的改动是 Zotero 的普通本地改动，立即在 UI 可见、正常参与同步、
+#     自动维护全文索引——因此比 sqlite 直写更安全，推荐优先使用。
+
+API_KEY_CACHE = os.path.join(os.path.expanduser("~"), ".zotero_attach_local_key.json")
+
+
+class LocalApiError(Exception):
+    def __init__(self, status, body):
+        self.status = status
+        self.body = body
+        super().__init__(f"HTTP {status}: {body[:200]}")
+
+
+class LocalApiClient:
+    """Zotero 10+ 本地 API 最小客户端（仅用标准库）"""
+
+    def __init__(self, port=23119, app_name="paper-workflow zotero_attach", api_key=None):
+        self.port = port
+        self.base = f"http://127.0.0.1:{port}/api"
+        self.app_name = app_name
+        self.server_id = None
+        self.api_key = api_key
+        self._probe()
+
+    # ---- 底层请求 ----
+    def _request(self, method, path_or_url, headers=None, body=None,
+                 auth=False, timeout=60):
+        url = path_or_url if path_or_url.startswith("http") else self.base + path_or_url
+        hdrs = dict(headers or {})
+        if auth:
+            if self.server_id:
+                hdrs["Zotero-Server-ID"] = self.server_id
+            if self.api_key:
+                hdrs["Zotero-API-Key"] = self.api_key
+        req = urllib.request.Request(url, data=body, headers=hdrs, method=method)
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.status, resp.headers, resp.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.headers, e.read()
+        except urllib.error.URLError as e:
+            raise SystemExit(
+                f"[错误] 无法连接 Zotero 本地 API ({url}): {e.reason}\n"
+                "      请确认 Zotero 正在运行。")
+
+    def _json(self, status, body):
+        try:
+            return json.loads(body.decode("utf-8"))
+        except Exception:
+            raise LocalApiError(status, body.decode("utf-8", "replace"))
+
+    # ---- 探测与授权 ----
+    def _probe(self):
+        status, headers, _ = self._request("GET", "/", timeout=15)
+        if status == 403:
+            raise SystemExit(
+                "[错误] Zotero 本地 API 未启用（403）。\n"
+                "      请在 Zotero 中：设置 → 高级 → 勾选\n"
+                "      “允许此计算机上的其他应用程序与 Zotero 通信”，然后重试。")
+        if status != 200:
+            raise SystemExit(f"[错误] 本地 API 探测失败: HTTP {status}")
+        self.server_id = headers.get("Zotero-Server-ID")
+        api_ver = headers.get("Zotero-API-Version", "?")
+        schema_ver = headers.get("Zotero-Schema-Version", "?")
+        print(f"[信息] 本地 API 已连接 (API v{api_ver}, schema {schema_ver}, "
+              f"Server-ID {self.server_id})")
+        if not self.server_id:
+            raise SystemExit(
+                "[错误] 响应中没有 Zotero-Server-ID —— 写入需要 Zotero 10 或更高版本，"
+                "请升级 Zotero 或改用 sqlite 模式（需退出 Zotero）。")
+        # 从缓存恢复可复用 key
+        if not self.api_key:
+            self.api_key = self._load_cached_key()
+
+    def _load_cached_key(self):
+        try:
+            with open(API_KEY_CACHE, encoding="utf-8") as f:
+                cache = json.load(f)
+            entry = cache.get(self.server_id)
+            if entry and entry.get("remember"):
+                return entry.get("key")
+        except Exception:
+            pass
+        return None
+
+    def _save_cached_key(self, key, remember):
+        if not remember:
+            return
+        cache = {}
+        try:
+            with open(API_KEY_CACHE, encoding="utf-8") as f:
+                cache = json.load(f)
+        except Exception:
+            pass
+        cache[self.server_id] = {"key": key, "remember": True}
+        try:
+            with open(API_KEY_CACHE, "w", encoding="utf-8") as f:
+                json.dump(cache, f)
+        except Exception:
+            pass
+
+    def authorize(self):
+        """弹窗请求写权限。注意：若用户只点 Allow，该 key 只能消费一个写请求。"""
+        print("[授权] Zotero 将弹出授权对话框，请点击 “Always Allow”（允许复用）…")
+        status, _, body = self._request(
+            "POST", "/local/authorize",
+            headers={"Content-Type": "application/json",
+                     "Zotero-Server-ID": self.server_id},
+            body=json.dumps({"appName": self.app_name}).encode("utf-8"),
+            timeout=180)
+        if status == 403:
+            raise SystemExit("[错误] 用户拒绝了写授权。")
+        if status == 429:
+            raise SystemExit("[错误] 授权请求过于频繁（429），请稍等片刻后重试。")
+        if status != 200:
+            raise SystemExit(f"[错误] 授权失败: HTTP {status} {body[:200]}")
+        data = self._json(status, body)
+        self.api_key = data["key"]
+        self._save_cached_key(self.api_key, data.get("remember", False))
+        if not data.get("remember"):
+            print("[警告] 你选择了单次授权（Allow）。批量挂载会多次弹窗；"
+                  "建议点 “Always Allow”。")
+
+    def _write(self, method, path, headers=None, body=None, timeout=60, _retried=False):
+        """带 key 的写请求；401 时自动重新授权并重试一次。"""
+        if not self.api_key:
+            self.authorize()
+        status, hdrs, data = self._request(method, path, headers=headers,
+                                           body=body, auth=True, timeout=timeout)
+        if status == 401 and not _retried:
+            self.api_key = None  # 缓存 key 失效（单次 key 已消费或已被清除）
+            self.authorize()
+            return self._write(method, path, headers=headers, body=body,
+                               timeout=timeout, _retried=True)
+        return status, hdrs, data
+
+    # ---- 条目操作 ----
+    def get_item(self, key):
+        status, _, body = self._request("GET", f"/users/0/items/{key}")
+        if status != 200:
+            return None
+        return self._json(status, body)
+
+    def resolve_parent(self, parent_key=None, parent_title=None):
+        if parent_key:
+            item = self.get_item(parent_key)
+            if not item:
+                raise SystemExit(f"[错误] 未找到 key 为 {parent_key} 的条目")
+            data = item.get("data", {})
+            if data.get("itemType") in ("attachment", "note"):
+                raise SystemExit(
+                    f"[错误] key {parent_key} 指向的是 {data.get('itemType')} 条目，"
+                    "请提供论文条目本身的 key（Zotero 界面右键条目 → 复制条目链接可看到 key）")
+            return parent_key, data.get("title", parent_key)
+        if parent_title:
+            q = urllib.parse.quote(parent_title)
+            status, _, body = self._request(
+                "GET", f"/users/0/items?q={q}&qmode=titleCreatorYear&limit=100")
+            if status != 200:
+                raise SystemExit(f"[错误] 标题搜索失败: HTTP {status}")
+            hits = [it for it in self._json(status, body)
+                    if it.get("data", {}).get("itemType") not in ("attachment", "note")]
+            hits = [it for it in hits
+                    if parent_title.lower() in (it["data"].get("title") or "").lower()]
+            if not hits:
+                raise SystemExit(f"[错误] 没有标题包含 “{parent_title}” 的论文条目")
+            if len(hits) > 1:
+                print("[错误] 标题匹配到多篇论文，请改用 --parent-key：")
+                for it in hits[:10]:
+                    print(f"  key={it['key']}  {it['data'].get('title', '')[:70]}")
+                raise SystemExit(1)
+            return hits[0]["key"], hits[0]["data"].get("title", "")
+        raise SystemExit("[错误] 必须提供 --parent-key 或 --parent-title")
+
+    def child_attachment_exists(self, parent_key, title):
+        status, _, body = self._request(
+            "GET", f"/users/0/items/{parent_key}/children")
+        if status != 200:
+            return False
+        for it in self._json(status, body):
+            d = it.get("data", {})
+            if d.get("itemType") == "attachment" and d.get("title") == title:
+                return True
+        return False
+
+    def create_attachment(self, parent_key, title, filename, ctype):
+        payload = [{
+            "itemType": "attachment",
+            "parentItem": parent_key,
+            "linkMode": "imported_file",
+            "title": title,
+            "accessDate": "",
+            "url": "",
+            "note": "",
+            "tags": [],
+            "relations": {},
+            "contentType": ctype,
+            "charset": "",
+            "filename": filename,
+            "md5": None,
+            "mtime": None,
+        }]
+        status, _, body = self._write(
+            "POST", "/users/0/items",
+            headers={"Content-Type": "application/json"},
+            body=json.dumps(payload).encode("utf-8"))
+        if status != 200:
+            raise LocalApiError(status, body.decode("utf-8", "replace"))
+        result = self._json(status, body)
+        if result.get("failed"):
+            raise LocalApiError(status, json.dumps(result["failed"], ensure_ascii=False))
+        ok = result.get("successful", {})
+        if not ok:
+            raise LocalApiError(status, "successful 为空: " + body.decode("utf-8", "replace")[:300])
+        return ok["0"]["key"]
+
+    def upload_file(self, item_key, file_path, filename, md5, mtime_ms, ctype):
+        """三阶段上传：授权 → POST 字节 → 注册"""
+        size = os.path.getsize(file_path)
+        form = urllib.parse.urlencode({
+            "md5": md5, "filename": filename, "filesize": size, "mtime": mtime_ms,
+        }).encode("utf-8")
+        status, _, body = self._write(
+            "POST", f"/users/0/items/{item_key}/file",
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "If-None-Match": "*"},
+            body=form)
+        if status != 200:
+            raise LocalApiError(status, body.decode("utf-8", "replace"))
+        auth = self._json(status, body)
+        if auth.get("exists") == 1:
+            print("       (文件内容已存在，直接关联，无需上传)")
+            return
+
+        upload_url = auth["url"]
+        if upload_url.startswith("/"):
+            upload_url = f"http://127.0.0.1:{self.port}" + upload_url
+        with open(file_path, "rb") as f:
+            blob = f.read()
+        # 本地 API 的 prefix/suffix 为空；非空时按 multipart 片段拼接（兼容 Web API 形态）
+        data = (auth.get("prefix", "").encode("utf-8") + blob
+                + auth.get("suffix", "").encode("utf-8"))
+        status, _, resp_body = self._request(
+            "POST", upload_url,
+            headers={"Content-Type": auth.get("contentType") or ctype},
+            body=data, timeout=300)
+        if status != 201:
+            raise LocalApiError(status, resp_body.decode("utf-8", "replace"))
+
+        reg = urllib.parse.urlencode({"upload": auth["uploadKey"]}).encode("utf-8")
+        status, _, body = self._write(
+            "POST", f"/users/0/items/{item_key}/file",
+            headers={"Content-Type": "application/x-www-form-urlencoded",
+                     "If-None-Match": "*"},
+            body=reg)
+        if status != 204:
+            raise LocalApiError(status, body.decode("utf-8", "replace"))
+
+
+def run_api_mode(args, jobs):
+    client = LocalApiClient(port=args.api_port, api_key=args.api_key)
+    ok, skipped, failed = 0, 0, 0
+    results = []
+
+    for j in jobs:
+        try:
+            pkey, pdesc = client.resolve_parent(j["parent_key"], j["parent_title"])
+            if client.child_attachment_exists(pkey, j["title"]):
+                print(f"[跳过] 父条目已存在同名附件 “{j['title']}”，跳过")
+                skipped += 1
+                continue
+            fname = os.path.basename(j["file"]).replace("/", "_").replace("\\", "_")
+            with open(j["file"], "rb") as f:
+                md5 = hashlib.md5(f.read()).hexdigest()
+            mtime_ms = int(os.path.getmtime(j["file"]) * 1000)
+            ctype = CONTENT_TYPES.get(os.path.splitext(fname)[1].lower(),
+                                      "application/octet-stream")
+            new_key = client.create_attachment(pkey, j["title"], fname, ctype)
+            client.upload_file(new_key, j["file"], fname, md5, mtime_ms, ctype)
+            # 校验
+            item = client.get_item(new_key)
+            d = (item or {}).get("data", {})
+            if d.get("md5") != md5:
+                print(f"[警告] 附件已创建但 md5 校验不一致: {new_key}")
+            print(f"[完成] “{j['title']}” → key={new_key} 父条目={pdesc}")
+            ok += 1
+            results.append((j["title"], new_key))
+        except LocalApiError as e:
+            print(f"[失败] “{j['title']}”: {e}", file=sys.stderr)
+            failed += 1
+
+    print(f"\n[汇总] 成功 {ok}，跳过 {skipped}，失败 {failed}")
+    if ok:
+        print("[提示] API 写入已即时生效，Zotero 界面展开对应论文即可看到附件，"
+              "无需重启；如需删除，直接在 Zotero 中右键附件 → 删除。")
+    return 0 if failed == 0 else 1
+
+
 def resolve_parent(cur, parent_key=None, parent_title=None):
     """按 key 或标题解析父论文条目，返回 (itemID, 显示标题)"""
     if parent_key:
@@ -183,7 +504,7 @@ def build_jobs(args):
 
 def main():
     ap = argparse.ArgumentParser(
-        description="把本地文件注册为 Zotero 论文的正式子附件（需先完全退出 Zotero）")
+        description="把本地文件注册为 Zotero 论文的正式子附件")
     ap.add_argument("--file", help="要注册的文件（PDF 等）")
     ap.add_argument("--parent-key", help="父论文条目的 Zotero key（推荐，唯一）")
     ap.add_argument("--parent-title", help="父论文标题（模糊匹配，必须唯一命中）")
@@ -195,8 +516,35 @@ def main():
     ap.add_argument("--confirm", action="store_true",
                     help="确认实际写入（不加此项只会预演，防止误写真实文献库）")
     ap.add_argument("--force", action="store_true", help="跳过 Zotero 运行检测（不推荐）")
+    ap.add_argument("--api", action="store_true",
+                    help="走 Zotero 10+ 本地 API 写入（Zotero 运行中使用，无需退出；推荐）")
+    ap.add_argument("--api-port", type=int, default=23119, help="本地 API 端口（默认 23119）")
+    ap.add_argument("--api-key", default=None,
+                    help="已有本地 API 写密钥（不提供则自动弹窗授权）")
+    ap.add_argument("--api-probe", action="store_true",
+                    help="只探测本地 API 可用性后退出（不执行任何写入）")
     args = ap.parse_args()
 
+    # ---- API 模式：Zotero 运行中写入，无需退出 ----
+    if args.api_probe:
+        LocalApiClient(port=args.api_port, api_key=args.api_key)
+        print("[探测] 本地 API 可用。")
+        return
+    if args.api:
+        jobs = build_jobs(args)
+        for j in jobs:
+            if not os.path.exists(j["file"]):
+                raise SystemExit(f"[错误] 文件不存在: {j['file']}")
+        print(f"[信息] 本地 API 模式（无需退出 Zotero），待注册 {len(jobs)} 个附件")
+        if args.dry_run or not args.confirm:
+            for j in jobs:
+                print(f"  [预演] {j['file']}  →  父条目 {j['parent_key'] or j['parent_title']}"
+                      f"  标题 “{j['title']}”")
+            print("[预演] 未做任何写入。确认无误后加 --confirm 实际执行。")
+            return
+        sys.exit(run_api_mode(args, jobs))
+
+    # ---- sqlite 直写模式：需先完全退出 Zotero ----
     data_dir = args.data_dir or default_data_dir()
     db_path = os.path.join(data_dir, "zotero.sqlite")
     storage_dir = os.path.join(data_dir, "storage")

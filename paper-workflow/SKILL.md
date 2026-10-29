@@ -19,7 +19,7 @@ description: "论文全流程综合工具（适配Codex/Claude/WorkBuddy）：�
 
 **跨平台注意事项**：
 - PDF 转 Markdown 统一使用 `convert-documents-to-markdown` skill（基于 `@firecrawl/anydoc`）
-- LaTeX 编译需要本地安装 `xelatex`（TeX Live 或 MiKTeX）
+- LaTeX 编译需要本地安装 `xelatex`（TeX Live 或 MiKTeX）；**无 LaTeX 时走阶段3的降级路线**（浏览器 headless 打印 HTML→PDF，或 python-docx 生成 Word），不要因缺 LaTeX 而中断流程
 - Zotero 集成需要本地 Zotero 数据库访问权限
 - 公式验证需要 `pdftoppm`（Poppler 工具包）
 
@@ -152,9 +152,46 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
 
 ---
 
-## 阶段3: LaTeX PDF生成
+## 阶段3: 论文总结 PDF 生成
 
 **输入**: 四维度总结内容
+
+### 3.0 环境检测与降级路线（先执行，决定走哪条路）
+
+其他用户环境不一定装了 LaTeX。**第一步先检测**，再选生成方式：
+
+```bash
+xelatex --version 2>/dev/null && echo "有LaTeX" || echo "无LaTeX，走降级路线"
+```
+
+| 路线 | 适用 | 产物质量 | 依赖 |
+|---|---|---|---|
+| **A. LaTeX 路线** | 检测到 xelatex | 最佳（专业排版、原生公式） | TeX Live / MiKTeX |
+| **B. HTML → 浏览器打印 PDF** | 无 LaTeX（**默认降级**） | 良好（中文用系统字体，公式用 Unicode 符号） | 零安装，Chrome/Edge 几乎必装 |
+| **C. python-docx 生成 Word** | 用户想要可编辑文档 | 良好（可在 Word/WPS 中继续编辑、另存 PDF） | `pip install python-docx` |
+
+**降级路线 B 的具体做法**（无 LaTeX 时）：
+
+1. 把四维度总结生成为排版良好的单文件 HTML（内联 CSS）：
+   - 中文正文用系统字体栈：`font-family: "Microsoft YaHei","PingFang SC","Noto Sans CJK SC",sans-serif;`
+   - 公式用 Unicode 数学符号（∑ ∫ √ α β ρ ∂ ≈ ≤ → 等），**不要**依赖 MathJax/KaTeX CDN（headless 离线环境会渲染失败）
+   - 加 `@media print` 样式：A4、页边距 2cm、标题层级清晰
+2. 用浏览器 headless 打印为 PDF（按优先级探测）：
+   ```bash
+   # Windows（Edge 几乎必装）
+   "/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe" --headless --disable-gpu --print-to-pdf="输出.pdf" "file:///绝对路径/总结.html"
+   # macOS
+   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --print-to-pdf="输出.pdf" "file:///绝对路径/总结.html"
+   # Linux
+   google-chrome --headless --print-to-pdf="输出.pdf" "file:///绝对路径/总结.html"
+   ```
+3. 校验产物：`pdfinfo` 确认页数正常，或 `pdftoppm` 渲染首页目视检查。
+
+**降级路线 C 的具体做法**（用户要可编辑文档时）：用 python-docx 生成 .docx（标题样式 + 公式用 Unicode），交付时说明"可在 Word/WPS 中打开继续编辑，文件→另存为→PDF 即可导出 PDF"。
+
+> 降级路线的产物同样可进入阶段5 回写 Zotero（`zotero_attach.py` 已按扩展名识别 contentType，docx/html 都支持）。
+
+### 3.1 LaTeX 路线（有 LaTeX 时）
 
 **调度规则**:
 
@@ -277,8 +314,15 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
    > 注意 Windows 上**托盘图标也要退出**（关窗口 ≠ 退出），`Get-Process zotero` 无输出才算退干净。
    >
    > **若用户不想关闭 Zotero**，给出两条替代路径：
+   > - **本地 API 模式（推荐，本脚本已内置 `--api`）**：Zotero 10+ 的本地 API（`http://localhost:23119/api/`）支持写入（7–9 仅只读），Zotero **运行中**即可挂载，改动立即在 UI 可见、正常参与同步、自动维护全文索引。首次写入会弹窗授权，请用户点 **Always Allow**（可复用；只点 Allow 则每个写请求都要再弹一次）。前置：设置 → 高级 → 勾选"允许此计算机上的其他应用程序与 Zotero 通信"。用法：
+   >   ```bash
+   >   python scripts/zotero_attach.py --api-probe                                   # 先探测可用性
+   >   python scripts/zotero_attach.py --api --file "解析.pdf" --parent-key <KEY> --title "…" --confirm
+   >   python scripts/zotero_attach.py --api --jobs jobs.json --confirm              # 批量
+   >   ```
    > - **手动 UI 导入**（零风险，适合单篇）：右键论文 → 添加附件 → 附加存储文件的副本 → 选解析 PDF。
-   > - **Zotero 10+ 本地 API**（`http://localhost:23119/api/`）：Zotero 10.0 起本地 API 支持写入（7–9 仅只读），需在 设置→高级 勾选"允许此计算机上的其他应用程序与 Zotero 通信"并授权一次。**本脚本目前仍是 sqlite 直写，未实现 API 模式**，走 API 需另行开发。
+   >
+   > **模式选择**：优先 `--api`；用户是 Zotero 7–9（本地 API 只读）或 API 未启用时，退回 sqlite 直写模式（需退出 Zotero）。
 
 4. **正式写入**（脚本会自动备份数据库）：
    ```bash
@@ -386,7 +430,7 @@ Zotero 的 item key 字符集：`23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易�
 
 1. **DOI必须验证**: 绝不凭记忆写DOI，必须通过Crossref API验证
 2. **公式以图为准**: 公式核对必须用PDF渲染图，不用OCR文本
-3. **编译用xelatex**: 中文文档必须用xelatex，不用pdflatex
+3. **编译用xelatex**: 中文文档必须用xelatex，不用pdflatex；若环境没有 LaTeX，按阶段3.0 走降级路线（浏览器打印 HTML→PDF / python-docx），不要卡住
 4. **WPS打开PDF**: 编译后用WPS打开，不用系统默认阅读器
 5. **聊天公式用Unicode**: 对话中用Unicode数学符号，不用LaTeX原始语法
 6. **PDF转Markdown优先**: 阶段2优先使用 `convert-documents-to-markdown`，失败时回退到 `pdf-extractor`

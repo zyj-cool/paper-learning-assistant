@@ -182,13 +182,15 @@ Zotero 运行时不能从外部改库，原因有三：
 
 > 脚本若提示"Zotero 仍在运行"而你确信已退出，多半就是托盘进程还活着。
 
-### 不想关闭 Zotero？两条替代路径
+### 不想关闭 Zotero？两条免关闭路径（2026-10-29 起脚本已内置 API 模式）
 
 | 方案 | 是否需关闭 | 说明 |
 |---|---|---|
-| **A. Zotero 界面手动导入**（推荐给偶尔用一次的场景） | 否 | 右键论文 → **添加附件** → **附加存储文件的副本** → 选中解析 PDF。官方路径、零风险，缺点是得一篇一篇点 |
-| **B. Zotero 10+ 本地 API** | 否 | 本机 `http://localhost:23119/api/`。**Zotero 10.0 起本地 API 支持写入**（7–9 只能读），需先在 设置 → 高级 勾选"允许此计算机上的其他应用程序与 Zotero 通信"，并授权一次写权限。**当前脚本尚未实现该模式**，仍是 sqlite 直写 |
-| **C. 本脚本 sqlite 直写** | **是** | 适合批量（本次一次挂 14 个附件），快，但必须退出 Zotero |
+| **A. 本地 API 模式（推荐）** | 否 | 脚本加 `--api` 即可在 Zotero **运行中**批量挂载：`zotero_attach.py --api --jobs jobs.json --confirm`。走 `http://localhost:23119/api/`，**Zotero 10.0 起本地 API 支持写入**（7–9 只能读）。前置：设置 → 高级 勾选"允许此计算机上的其他应用程序与 Zotero 通信"；首次写入弹窗授权，请点 **Always Allow**（密钥缓存于 `~/.zotero_attach_local_key.json`）。API 写入即时生效、正常参与同步、自动维护全文索引，比 sqlite 直写更安全 |
+| **B. Zotero 界面手动导入** | 否 | 右键论文 → **添加附件** → **附加存储文件的副本** → 选中解析 PDF。官方路径、零风险，缺点是得一篇一篇点 |
+| **C. 本脚本 sqlite 直写** | **是** | 适合 Zotero 7–9（本地 API 只读）或 API 未启用的场景，快，但必须退出 Zotero |
+
+先用 `python scripts/zotero_attach.py --api-probe` 探测本地 API 是否可用，再决定走 A 还是 C。
 
 ### 用法
 
@@ -276,6 +278,15 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
   - 三个原因：内存缓存覆盖改动、SQLite 锁冲突、全文索引与同步状态不一致（最坏触发云端覆盖）
   - 给出两条"不用关闭"的替代路径：Zotero 界面手动导入；Zotero 10+ 本地 API
     （`localhost:23119`，10.0 起支持写入，7–9 仅只读，需先在设置中开启并授权）
+- **`zotero_attach.py` 新增 `--api` 本地 API 模式**：Zotero 运行中即可批量挂载，无需退出
+  （Zotero 10+；含授权弹窗、密钥缓存、三阶段文件上传、401 自动重授权重试）；
+  另新增 `--api-probe` 探测命令
+- **阶段3 新增无 LaTeX 降级路线**：先检测 `xelatex`，缺失时自动降级为
+  「HTML（内联CSS+Unicode公式）→ Chrome/Edge headless `--print-to-pdf`」或 python-docx 生成 Word，
+  不再因环境没有 LaTeX 而中断
+- **隐私清理**：移除各 skill 文档中残留的本机绝对路径（替换为 `C:\Users\<用户名>` 占位符），
+  删除误提交的运行时调试报告，并用 git filter-repo 重写了全部历史；
+  新增 `.gitignore` 规则阻止 `tool/reports/` 再次被提交
 
 ### 2026-10-24
 - 新增 `Paper Learning Assistant（论文学习助手）`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy

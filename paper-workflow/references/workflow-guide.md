@@ -186,6 +186,24 @@ Zotero/storage/<KEY>/
 
 #### 5.3 一键完成
 
+**模式 A：本地 API（推荐，Zotero 10+，无需退出 Zotero）**
+
+```bash
+# 先探测本地 API 是否可用（未启用会给出开启指引）
+python scripts/zotero_attach.py --api-probe
+
+# 预演 / 实际写入（Zotero 保持运行；首次写入弹窗授权，点 Always Allow）
+python scripts/zotero_attach.py --api --file "解析.pdf" --parent-key <论文KEY> --title "论文解析（…）"
+python scripts/zotero_attach.py --api --file "解析.pdf" --parent-key <论文KEY> --title "论文解析（…）" --confirm
+python scripts/zotero_attach.py --api --jobs jobs.json --confirm
+```
+
+前置：Zotero 设置 → 高级 → 勾选"允许此计算机上的其他应用程序与 Zotero 通信"。
+可复用密钥缓存于 `~/.zotero_attach_local_key.json`。API 写入即时生效、参与同步、
+自动维护全文索引。Zotero 7–9 的本地 API 只读，只能走模式 B。
+
+**模式 B：sqlite 直写（需完全退出 Zotero）**
+
 ```bash
 # 预演（默认，绝不写入）
 python scripts/zotero_attach.py --file "解析.pdf" --parent-key <论文KEY> --title "论文解析（…）"

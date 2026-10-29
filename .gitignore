@@ -6,3 +6,7 @@ __pycache__/
 *.pyc
 node_modules/
 .DS_Store
+
+# 运行时调试报告（可能含本机绝对路径，禁止提交）
+literature-summary/tool/reports/
+**/tool/reports/
