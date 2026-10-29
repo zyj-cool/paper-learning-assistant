@@ -1,4 +1,4 @@
-# Paper Learning Assistant · Skills Collection
+# 论文学习助手 · Skills 集合
 
 > 一套面向科研工作者的 AI 技能体系，覆盖论文从检索、阅读、总结、写作到排版投稿的全流程。
 
@@ -35,7 +35,7 @@
 
 | Skill | 一句话说明 | 触发词 |
 |---|---|---|
-| **Paper Learning Assistant（论文学习助手）** | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注→**解析产物回写Zotero**，一站式完成 | "总结论文""帮我读论文""论文工作流""把解析放进Zotero" |
+| **论文学习助手**（`paper-learning-assistant`） | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注→**解析产物回写Zotero**，一站式完成 | "总结论文""帮我读论文""论文工作流""把解析放进Zotero" |
 | **latex-academic-paper-explanation** | 论文详解工具。深度解读单篇论文，生成六章结构LaTeX文档 | "论文详解""详细解读""整理成文档" |
 
 ### 文献检索与验证
@@ -268,6 +268,13 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
 ## 更新日志
 
 ### 2026-10-29
+- **改名：统一为「论文学习助手」`paper-learning-assistant`**
+  - 仓库 `paper-learning-assistant` → `paper-learning-assistant`（https://github.com/zyj-cool/paper-learning-assistant）
+  - skill 目录 `paper-workflow` → `paper-learning-assistant`，`name` 去掉个人前缀
+  - `latex-academic-paper-explanation` → `latex-academic-paper-explanation`
+  - 发布包 `paper-learning-assistant_skill.zip` → `paper_learning_assistant_skill.zip`
+  - 文档中的平台表述改为中性的 Codex / Claude / WorkBuddy（保留 qmind-knowledge 中面向
+    特定平台产品的功能性描述）
 - **`paper-learning-assistant` 新增阶段5「解析产物回写 Zotero」**
   - 新增 `scripts/zotero_attach.py`：把论文解析 PDF 注册为 Zotero 论文的正式子附件，
     含预演/备份/幂等/回读校验/失败回滚，默认只预演、写入需 `--confirm`
