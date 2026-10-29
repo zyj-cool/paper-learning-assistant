@@ -269,6 +269,17 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
 
 3. **让用户完全退出 Zotero**（文件→退出，确认托盘图标也退出），脚本会自动检测进程与数据库锁并在运行时拒绝写入。
 
+   > **为什么必须完全退出？**（用户常问"能不能不关 Zotero"，答案：用本脚本的 sqlite 直写方式**不能**）
+   > - **内存缓存覆盖**：Zotero 把条目数据缓存在内存里，外部写库它看不见；它下次提交自己的事务时，会用旧缓存覆盖你的改动，刚挂上的附件会直接消失。
+   > - **SQLite 锁冲突**：Zotero 持有连接与 WAL 锁，外部并发写入可能触发 `database is locked`，严重时损坏库文件。
+   > - **索引与同步不一致**：`fulltext.sqlite`（全文索引）、`version`/`synced` 标记不会自动更新；若开着官方同步，最坏触发云端"最后写入者胜"覆盖数据。
+   >
+   > 注意 Windows 上**托盘图标也要退出**（关窗口 ≠ 退出），`Get-Process zotero` 无输出才算退干净。
+   >
+   > **若用户不想关闭 Zotero**，给出两条替代路径：
+   > - **手动 UI 导入**（零风险，适合单篇）：右键论文 → 添加附件 → 附加存储文件的副本 → 选解析 PDF。
+   > - **Zotero 10+ 本地 API**（`http://localhost:23119/api/`）：Zotero 10.0 起本地 API 支持写入（7–9 仅只读），需在 设置→高级 勾选"允许此计算机上的其他应用程序与 Zotero 通信"并授权一次。**本脚本目前仍是 sqlite 直写，未实现 API 模式**，走 API 需另行开发。
+
 4. **正式写入**（脚本会自动备份数据库）：
    ```bash
    python scripts/zotero_attach.py --file "解析.pdf" --parent-key <论文条目KEY> --title "论文解析（XXX）" --confirm
