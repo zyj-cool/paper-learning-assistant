@@ -159,7 +159,7 @@ description: 科研导师 skill，面向研究生科研陪跑、中文核心论�
 当用户要求“复现图”“继续改图”“补代码”“输出 SVG/PDF/PNG”“生成 assumptions”“合成数据配套”“图代码配套”“像 GitHub 包那样完整交付”时，不要只给建议。默认生成一个可复现工程包：
 
 ```powershell
-python C:\Users\<用户名>\.claude\skills\research-mentor\scripts\figure_package_scaffold.py --output-dir outputs --name my_figure_package --type cnn
+python ~/.claude/skills/research-mentor\scripts\figure_package_scaffold.py --output-dir outputs --name my_figure_package --type cnn
 ```
 
 `--type` 可选：

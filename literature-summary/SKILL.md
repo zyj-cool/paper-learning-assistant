@@ -19,7 +19,7 @@ description: "Zotero literature summary automation: prepare paper artifacts from
 All scripts and templates live inside this skill directory:
 
 ```
-SKILL_DIR = C:\Users\<用户名>\.claude\skills\literature-summary\tool
+SKILL_DIR = ~/.claude/skills/literature-summary\tool
 ```
 
 Scripts are in `SKILL_DIR\scripts\`, templates in `SKILL_DIR\templates\`.

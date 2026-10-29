@@ -7,9 +7,9 @@ description: "论文深度详解工具：将单篇论文拆解为六章结构化
 
 > 将论文核心内容深度解读并生成LaTeX排版文档。
 
-## 与 paper-workflow 的区别
+## 与 paper-learning-assistant 的区别
 
-- `paper-workflow`: 全流程调度（检索→总结→LaTeX→Zotero），适合快速概览
+- `paper-learning-assistant`: 全流程调度（检索→总结→LaTeX→Zotero），适合快速概览
 - `latex-academic-paper-explanation`: 专注深度解读，适合精读单篇论文
 
 ## 触发条件
@@ -17,7 +17,7 @@ description: "论文深度详解工具：将单篇论文拆解为六章结构化
 - "论文详解" / "详细解读这篇论文"
 - "把论文内容整理成文档"
 - "深度分析这篇论文的方法部分"
-- 用户已用 paper-workflow 做了快速总结，现在需要更深入的解读
+- 用户已用 paper-learning-assistant 做了快速总结，现在需要更深入的解读
 
 ## 工作流
 

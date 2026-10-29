@@ -1,4 +1,4 @@
-# 论文学习助手 · Skills 集合
+# Paper Learning Assistant · Skills Collection
 
 > 一套面向科研工作者的 AI 技能体系，覆盖论文从检索、阅读、总结、写作到排版投稿的全流程。
 

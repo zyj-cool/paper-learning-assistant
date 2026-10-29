@@ -162,7 +162,7 @@ class LocalApiError(Exception):
 class LocalApiClient:
     """Zotero 10+ 本地 API 最小客户端（仅用标准库）"""
 
-    def __init__(self, port=23119, app_name="paper-workflow zotero_attach", api_key=None):
+    def __init__(self, port=23119, app_name="paper-learning-assistant zotero_attach", api_key=None):
         self.port = port
         self.base = f"http://127.0.0.1:{port}/api"
         self.app_name = app_name
