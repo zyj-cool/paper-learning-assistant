@@ -270,11 +270,11 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
 ### 2026-10-29
 - **改名：统一为「论文学习助手」`paper-learning-assistant`**
   - 仓库 `paper-learning-assistant` → `paper-learning-assistant`（https://github.com/zyj-cool/paper-learning-assistant）
-  - skill 目录 `paper-workflow` → `paper-learning-assistant`，`name` 去掉个人前缀
+  - skill 目录 `paper-workflow` → `paper-learning-assistant`，显示名去掉个人前缀
   - `latex-academic-paper-explanation` → `latex-academic-paper-explanation`
   - 发布包 `paper-learning-assistant_skill.zip` → `paper_learning_assistant_skill.zip`
-  - 文档中的平台表述改为中性的 Codex / Claude / WorkBuddy（保留 qmind-knowledge 中面向
-    特定平台产品的功能性描述）
+  - 文档中的平台表述改为中性的 Codex / Claude / WorkBuddy；仅 qmind-knowledge 因面向
+    特定平台产品而保留其官方名称
 - **`paper-learning-assistant` 新增阶段5「解析产物回写 Zotero」**
   - 新增 `scripts/zotero_attach.py`：把论文解析 PDF 注册为 Zotero 论文的正式子附件，
     含预演/备份/幂等/回读校验/失败回滚，默认只预演、写入需 `--confirm`
