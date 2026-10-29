@@ -1,6 +1,6 @@
 ---
 name: paper-learning-assistant
-description: "论文全流程综合工具（适配Codex/Claude/WorkBuddy）：检索论文并验证DOI、按四维度总结论文（中文摘要+公式推导+思路脉络+图表解读）、PDF转Markdown、生成LaTeX PDF、标注Zotero标签。当用户说'总结论文''分析这篇论文''帮我读论文''论文工作流'时触发。自动调度crossref-doi-verification、literature-summary、latex-iterative-refinement、convert-documents-to-markdown等子skill。"
+description: "论文全流程综合工具（适配Codex/Claude/WorkBuddy）：检索论文并验证DOI、按四维度总结论文（中文摘要+公式推导+思路脉络+图表解读）、PDF转Markdown、生成LaTeX PDF、标注Zotero标签、并将解析PDF回写注册为Zotero正式子附件（scripts/zotero_attach.py）。当用户说'总结论文''分析这篇论文''帮我读论文''论文工作流''把解析放进Zotero/归档到Zotero'时触发。自动调度crossref-doi-verification、literature-summary、latex-iterative-refinement、convert-documents-to-markdown等子skill。"
 ---
 
 # 论文全流程综合工具
@@ -30,11 +30,12 @@ description: "论文全流程综合工具（适配Codex/Claude/WorkBuddy）：�
 - 用户提供PDF/DOI/论文标题，要求全面总结
 - 要求生成论文的LaTeX排版总结文档
 - 要求将PDF转换为Markdown格式
+- **把解析/笔记/补充材料放进 Zotero**（"归档到Zotero""在Zotero里能看到解析""放到对应论文的附件里"）
 
 ## 工作流总览
 
 ```
-阶段1: 检索与定位 → 阶段2: 四维度总结 → 阶段3: LaTeX生成 → 阶段4: Zotero标注
+阶段1: 检索与定位 → 阶段2: 四维度总结 → 阶段3: LaTeX生成 → 阶段4: Zotero标注 → 阶段5: 解析产物回写Zotero
 ```
 
 每个阶段可独立执行，也可串联完成全流程。
@@ -232,6 +233,74 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
 
 ---
 
+## 阶段5: 解析产物回写 Zotero（注册为正式子附件）
+
+**输入**: 阶段3生成的解析PDF + 论文在Zotero中的条目
+
+**核心原则（必须先理解，否则会做错）**:
+
+> Zotero 的附件列表以 **sqlite 数据库记录** 为准，不以文件系统为准。
+> - `Zotero/storage/<KEY>/` 中的 `<KEY>` 是 **附件条目自己的 key**，不是论文条目的 key；
+> - 一个附件条目对应一个独立 storage 文件夹（**一文件夹一附件**）；
+> - **直接把文件拷进已有 storage 文件夹，Zotero 不会显示它，也不会同步** —— 用户会看到"文件放进去了但界面里没有"。
+>
+> 所以要让解析文件出现在论文的下拉列表里，必须：**新建 key → 建独立文件夹 → 放文件 → 写数据库 → 校验**。
+
+**工具**: `scripts/zotero_attach.py`（本skill自带，见下节）
+
+### 执行步骤
+
+1. **定位论文条目**（先查再写，别猜）：
+   ```bash
+   # 复制数据库后只读查询（Zotero 运行时会锁原文件）
+   cp ~/Zotero/zotero.sqlite ./zt.sqlite
+   python -c "
+   import sqlite3; con=sqlite3.connect('zt.sqlite')
+   # 按标题找论文条目（itemTypeID != 3 才是论文，3 是 attachment）
+   print(con.execute(\"SELECT itemID,key FROM items WHERE itemID=597\").fetchone())
+   "
+   ```
+   确认拿到的是**论文父条目的 key**（形如 `BSQC5T58`），而不是 PDF 附件的 key。
+
+2. **先预演**（默认行为，不加 `--confirm` 绝不写入）：
+   ```bash
+   python scripts/zotero_attach.py --file "解析.pdf" --parent-key <论文条目KEY> --title "论文解析（XXX）"
+   ```
+
+3. **让用户完全退出 Zotero**（文件→退出，确认托盘图标也退出），脚本会自动检测进程与数据库锁并在运行时拒绝写入。
+
+4. **正式写入**（脚本会自动备份数据库）：
+   ```bash
+   python scripts/zotero_attach.py --file "解析.pdf" --parent-key <论文条目KEY> --title "论文解析（XXX）" --confirm
+   ```
+
+5. **回读校验**：脚本内置回读，确认 itemID / key / parentItemID / path / title 正确，且孤儿记录为 0。
+
+6. 请用户重新打开 Zotero，展开论文条目应能看到新附件。
+
+### 数据库写入细节（出错时排查用）
+
+需写 4 张表：
+
+| 表 | 关键字段 |
+|---|---|
+| `items` | `itemTypeID=3`(attachment), `libraryID=1`, `key`=新8位key, `version=0`, `synced=0`, `clientVersion=0` |
+| `itemAttachments` | `parentItemID`=论文条目ID, `linkMode=0`, `contentType='application/pdf'`, `path='storage:文件名'`, `syncState=0`, `storageModTime`=毫秒时间戳, `storageHash`=文件MD5 |
+| `itemDataValues` | `value`=附件显示标题 |
+| `itemData` | `itemID` + `fieldID=1`(title) + `valueID` |
+
+Zotero 的 item key 字符集：`23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易混淆的 0/1/I/O），长度 8。
+
+### 安全红线
+
+1. **必须先退出 Zotero** —— 运行中写库会导致 Zotero 内存状态与数据库不一致。
+2. **必须先备份** —— 脚本自动备份为 `zotero.sqlite.bak-<时间戳>`；回滚＝退出 Zotero 后用备份覆盖。
+3. **默认只预演** —— 不加 `--confirm` 一律不写入，防止误写真实文献库。
+4. **首次使用建议先在临时副本库演练**：`--data-dir ./_zttest`（复制 zotero.sqlite + 建空 storage/ 目录）。
+5. **幂等** —— 同一父条目下已存在同名附件时自动跳过，不会产生重复条目。
+
+---
+
 ## 子Skill索引
 
 本skill调度以下已有skill，按需加载：
@@ -252,6 +321,12 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
 | 论文详解 | `latex-academic-paper-explanation` | 用户级skills |
 | 引用审计 | `papercheck` | 插件: research-copilot |
 | 科研导师 | `research-mentor` | 用户级skills |
+
+### 本skill自带脚本
+
+| 阶段 | 脚本 | 说明 |
+|---|---|---|
+| 阶段5 | `scripts/zotero_attach.py` | 把本地PDF注册为Zotero论文的子附件（预演/备份/批量/幂等/回读校验） |
 
 ## 快速使用示例
 
@@ -285,6 +360,17 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
 → 输出 .md 文件
 ```
 
+**示例5: 把解析归档到Zotero论文的附件列表**
+```
+用户: 把这篇论文的解析放到Zotero里 / 我想在Zotero展开论文时看到解析
+→ 阶段5:
+   1. 查 zotero.sqlite 确认【论文父条目key】（注意不是PDF附件的key）
+   2. python scripts/zotero_attach.py --file 解析.pdf --parent-key <KEY> --title "论文解析（…）"   ← 预演
+   3. 请用户完全退出 Zotero（脚本会检测进程/锁并拒绝）
+   4. 加 --confirm 实际写入（自动备份 + 回读校验）
+   5. 请用户重开 Zotero，展开论文即可看到新附件
+```
+
 ## 注意事项
 
 1. **DOI必须验证**: 绝不凭记忆写DOI，必须通过Crossref API验证
@@ -293,6 +379,8 @@ npx -y @firecrawl/anydoc paper.pdf --ocr hosted -o paper.md
 4. **WPS打开PDF**: 编译后用WPS打开，不用系统默认阅读器
 5. **聊天公式用Unicode**: 对话中用Unicode数学符号，不用LaTeX原始语法
 6. **PDF转Markdown优先**: 阶段2优先使用 `convert-documents-to-markdown`，失败时回退到 `pdf-extractor`
+7. **Zotero回写不是拷贝文件**: 阶段5必须写数据库注册附件条目，只把文件塞进 storage 文件夹用户是看不到的
+8. **写Zotero库前三件事**: 退出Zotero → 备份zotero.sqlite → 先预演（不加 `--confirm` 不写入）
 
 ---
 

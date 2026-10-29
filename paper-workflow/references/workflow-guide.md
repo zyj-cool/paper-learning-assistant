@@ -145,3 +145,66 @@ paper_summary/
 - 笔记: [用户在此论文上的笔记内容，如有]
 - 附件: [PDF路径，如有]
 ```
+
+---
+
+### 阶段5: 解析产物回写 Zotero（注册为正式子附件）
+
+#### 5.1 为什么不能直接拷文件（最常见错误）
+
+Zotero 的附件列表**以 sqlite 数据库记录为准**，不是以文件系统为准：
+
+```
+Zotero/storage/<KEY>/
+        ↑
+        这是【附件条目自己的 key】，不是论文条目的 key
+        一个附件条目 = 一个独立 storage 文件夹
+```
+
+因此把解析 PDF 拷进论文 PDF 所在文件夹（例如 `storage/W4YWDI6Q/`）的结果是：
+
+- 文件确实在磁盘上，资源管理器里能看到；
+- 但 **Zotero 界面论文条目下不会出现它**，也**不会参与同步**。
+
+用户反馈"是不是放错位置了"时，指的就是这个现象。
+
+#### 5.2 正确流程
+
+```
+① 查库定位【论文父条目】key（itemTypeID != 3）
+        ↓
+② 生成 8 位新 key（字符集 23456789ABCDEFGHIJKLMNPQRSTUVWXYZ）
+        ↓
+③ 在 storage/ 下新建该 key 的文件夹，放入文件
+        ↓
+④ 备份 zotero.sqlite
+        ↓
+⑤ 完全退出 Zotero 后写入 4 张表
+        ↓
+⑥ 回读校验 + 重开 Zotero 确认
+```
+
+#### 5.3 一键完成
+
+```bash
+# 预演（默认，绝不写入）
+python scripts/zotero_attach.py --file "解析.pdf" --parent-key <论文KEY> --title "论文解析（…）"
+
+# 实际写入（已退出 Zotero 后）
+python scripts/zotero_attach.py --file "解析.pdf" --parent-key <论文KEY> --title "论文解析（…）" --confirm
+
+# 批量
+python scripts/zotero_attach.py --jobs jobs.json --confirm
+```
+
+脚本已内置：进程/锁检测、自动备份、幂等跳过、回读校验、失败回滚。
+
+#### 5.4 常见坑
+
+| 现象 | 原因 | 解决 |
+|---|---|---|
+| 用 PDF 附件的 key 当 `--parent-key` | 附件 key 指向的是 attachment 条目，不是论文 | 查 `items` 表取**论文条目**的 key（`itemTypeID != 3`） |
+| 界面看不到新附件 | 只拷了文件没写库 | 走阶段5流程注册 |
+| 提示数据库被占用 | Zotero 没退干净（含托盘图标） | 文件→退出，确认进程消失 |
+| 同一附件注册了两次 | — | 脚本按"父条目+标题"幂等跳过 |
+| 需要撤销 | — | 退出 Zotero，用 `zotero.sqlite.bak-<时间戳>` 覆盖原库 |

@@ -35,7 +35,7 @@
 
 | Skill | 一句话说明 | 触发词 |
 |---|---|---|
-| **Paper Learning Assistant（论文学习助手）** | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注，一站式完成 | "总结论文""帮我读论文""论文工作流" |
+| **Paper Learning Assistant（论文学习助手）** | 论文全流程综合工具（适配Codex/Claude/WorkBuddy）。检索→四维度总结→PDF转Markdown→LaTeX PDF→Zotero标注→**解析产物回写Zotero**，一站式完成 | "总结论文""帮我读论文""论文工作流""把解析放进Zotero" |
 | **latex-academic-paper-explanation** | 论文详解工具。深度解读单篇论文，生成六章结构LaTeX文档 | "论文详解""详细解读""整理成文档" |
 
 ### 文献检索与验证
@@ -142,6 +142,72 @@ AI: [自动触发 convert-documents-to-markdown]
 
 ---
 
+## 新增功能：解析产物回写 Zotero（阶段5）
+
+> 2026-10-29 更新。让 AI 生成的**论文解析 PDF** 直接出现在 Zotero 论文条目的**附件下拉列表**里，而不是躺在一个你看不到的文件夹里。
+
+### 为什么需要它
+
+Zotero 的附件列表以 **sqlite 数据库记录**为准，不以文件系统为准：
+
+```
+Zotero/storage/<KEY>/     ← 这是【附件条目自己的 key】，不是论文条目的 key
+                          ← 一个附件条目 = 一个独立 storage 文件夹
+```
+
+所以**直接把解析 PDF 拷进论文 PDF 所在文件夹是无效的**：
+
+- 文件确实在磁盘上，资源管理器能看到；
+- 但 Zotero 界面里**不会出现**，也**不会同步**。
+
+要让它显示，必须：新建 key → 建独立文件夹 → 放文件 → **写数据库** → 校验。本 skill 的 `scripts/zotero_attach.py` 把这一串动作封装成一条命令。
+
+### 用法
+
+```bash
+# ① 先预演（默认行为，不加 --confirm 绝不写入）
+python scripts/zotero_attach.py \
+  --file "论文解析_XXX.pdf" \
+  --parent-key <论文条目KEY> \
+  --title "论文解析（XXX）"
+
+# ② 完全退出 Zotero 后，确认执行（自动备份 + 回读校验）
+python scripts/zotero_attach.py \
+  --file "论文解析_XXX.pdf" \
+  --parent-key <论文条目KEY> \
+  --title "论文解析（XXX）" --confirm
+
+# ③ 批量（JSON）
+python scripts/zotero_attach.py --jobs jobs.json --confirm
+```
+
+**定位论文条目 key**（注意取的是论文条目，不是 PDF 附件）：
+
+```bash
+cp ~/Zotero/zotero.sqlite ./zt.sqlite     # Zotero 运行时会锁原文件，先复制
+python -c "import sqlite3;print(sqlite3.connect('zt.sqlite').execute(
+  \"SELECT itemID,key FROM items WHERE itemTypeID!=3 AND itemID=597\").fetchone())"
+```
+
+### 脚本已内置的安全机制
+
+| 机制 | 说明 |
+|---|---|
+| 默认只预演 | 不加 `--confirm` 一律不写库，防止误写真实文献库 |
+| 进程/锁检测 | Zotero 未退出时直接拒绝写入 |
+| 自动备份 | 写入前备份为 `zotero.sqlite.bak-<时间戳>`，可一键回滚 |
+| 幂等 | 同一父条目下已存在同名附件自动跳过，不产生重复 |
+| 回读校验 | 写入后回读 itemID/key/父条目/path/标题并打印 |
+| 失败回滚 | 任何异常 `rollback`，不留下半截数据 |
+| 临时库演练 | `--data-dir ./_zttest` 可在副本库上试跑，不碰真实数据 |
+
+### 数据库写入细节（排查用）
+
+写 4 张表：`items`（itemTypeID=3 附件条目）、`itemAttachments`（父条目/路径/MD5）、`itemDataValues`（显示标题）、`itemData`（fieldID=1 即 title）。
+Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易混淆的 0/1/I/O），长度 8。
+
+---
+
 ## 技能间的协作关系
 
 这套技能不是孤立存在的，它们通过 `Paper Learning Assistant（论文学习助手）` 统一调度，形成完整闭环：
@@ -170,6 +236,13 @@ AI: [自动触发 convert-documents-to-markdown]
 ---
 
 ## 更新日志
+
+### 2026-10-29
+- **`paper-learning-assistant` 新增阶段5「解析产物回写 Zotero」**
+  - 新增 `scripts/zotero_attach.py`：把论文解析 PDF 注册为 Zotero 论文的正式子附件，
+    含预演/备份/幂等/回读校验/失败回滚，默认只预演、写入需 `--confirm`
+  - 修正常见误区：Zotero 附件以数据库记录为准，只把文件拷进 storage 文件夹不会显示
+  - `references/workflow-guide.md` 补充阶段5 详细指南与常见坑对照表
 
 ### 2026-10-24
 - 新增 `Paper Learning Assistant（论文学习助手）`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy
