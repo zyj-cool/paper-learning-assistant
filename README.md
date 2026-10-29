@@ -25,7 +25,7 @@
 
 ![技能架构图](assets/skills-architecture.png)
 
-> 三层架构：**文献检索层** → **论文理解层** → **输出与排版层**，由 `Paper Learning Assistant（论文学习助手）` 统一调度，`research-mentor` 作为综合入口覆盖写作、审稿、投稿、绘图全流程。
+> 三层架构：**文献检索层** → **论文理解层** → **输出与排版层**，由 ``paper-learning-assistant`（论文学习助手）` 统一调度，`research-mentor` 作为综合入口覆盖写作、审稿、投稿、绘图全流程。
 
 ---
 
@@ -98,7 +98,7 @@ cp -r paper-learning-assistant/* ~/.workbuddy/skills/
 **场景 1：拿到一篇 PDF，快速总结**
 ```
 你: 帮我总结这篇论文 [附PDF]
-AI: [自动触发 Paper Learning Assistant（论文学习助手）]
+AI: [自动触发 `paper-learning-assistant`（论文学习助手）]
   → convert-documents-to-markdown 转 Markdown + crossref 验证DOI
   → 四维度总结（摘要/公式/脉络/图表）
   → 生成LaTeX PDF
@@ -240,11 +240,11 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
 
 ## 技能间的协作关系
 
-这套技能不是孤立存在的，它们通过 `Paper Learning Assistant（论文学习助手）` 统一调度，形成完整闭环：
+这套技能不是孤立存在的，它们通过 ``paper-learning-assistant`（论文学习助手）` 统一调度，形成完整闭环：
 
 ![协作关系流程图](assets/workflow-flowchart.png)
 
-每个环节都可以**单独使用**，也可以**串联执行**。比如你可以只用 `crossref-doi-verification` 验证一个 DOI，也可以让 `Paper Learning Assistant（论文学习助手）` 自动走完整个流程。
+每个环节都可以**单独使用**，也可以**串联执行**。比如你可以只用 `crossref-doi-verification` 验证一个 DOI，也可以让 ``paper-learning-assistant`（论文学习助手）` 自动走完整个流程。
 
 ---
 
@@ -269,10 +269,10 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
 
 ### 2026-10-29
 - **改名：统一为「论文学习助手」`paper-learning-assistant`**
-  - 仓库 `paper-learning-assistant` → `paper-learning-assistant`（https://github.com/zyj-cool/paper-learning-assistant）
+  - 仓库名改为 `paper-learning-assistant`：https://github.com/zyj-cool/paper-learning-assistant
   - skill 目录 `paper-workflow` → `paper-learning-assistant`，显示名去掉个人前缀
-  - `latex-academic-paper-explanation` → `latex-academic-paper-explanation`
-  - 发布包 `paper-learning-assistant_skill.zip` → `paper_learning_assistant_skill.zip`
+  - 论文详解 skill 的显示名去掉个人前缀，与目录名统一
+  - 发布包重命名为 `paper_learning_assistant_skill.zip`
   - 文档中的平台表述改为中性的 Codex / Claude / WorkBuddy；仅 qmind-knowledge 因面向
     特定平台产品而保留其官方名称
 - **`paper-learning-assistant` 新增阶段5「解析产物回写 Zotero」**
@@ -296,7 +296,7 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
   新增 `.gitignore` 规则阻止 `tool/reports/` 再次被提交
 
 ### 2026-10-24
-- 新增 `Paper Learning Assistant（论文学习助手）`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy
+- 新增 ``paper-learning-assistant`（论文学习助手）`：论文全流程综合工具，四阶段工作流，适配 Codex/Claude/WorkBuddy
 - 集成 `convert-documents-to-markdown`：PDF 转 Markdown 作为核心依赖
 - 补全 `latex-academic-paper-explanation`：论文详解工具，六章深度解读
 - 同步所有现有论文相关 skill 到仓库
