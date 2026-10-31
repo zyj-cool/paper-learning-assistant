@@ -46,6 +46,10 @@ sqlite 直写模式（默认）：必须先 **完全退出 Zotero**（含托盘�
     # 批量（JSON 文件）
     python zotero_attach.py --jobs jobs.json --confirm
 
+    # 改了本地解析后，把新版本推到 Zotero 覆盖同名附件（默认行为是“已存在则跳过”）
+    python zotero_attach.py --api --jobs jobs.json --update --confirm
+    python zotero_attach.py --jobs jobs.json --update --confirm      # sqlite 模式（需退出 Zotero）
+
     # 在临时副本库上做演练（推荐首次使用时先这样试，不碰真实文献库）
     python zotero_attach.py --data-dir ./_zttest --file "解析.pdf" --parent-key XXXXXXXX --title "论文解析" --confirm
 
@@ -321,15 +325,33 @@ class LocalApiClient:
         raise SystemExit("[错误] 必须提供 --parent-key 或 --parent-title")
 
     def child_attachment_exists(self, parent_key, title):
+        return self.find_child_attachment(parent_key, title) is not None
+
+    def find_child_attachment(self, parent_key, title):
+        """返回父条目下同名附件的 key，不存在则返回 None"""
         status, _, body = self._request(
             "GET", f"/users/0/items/{parent_key}/children")
         if status != 200:
-            return False
+            return None
         for it in self._json(status, body):
             d = it.get("data", {})
             if d.get("itemType") == "attachment" and d.get("title") == title:
-                return True
-        return False
+                return d.get("key")
+        return None
+
+    def patch_item(self, item_key, fields):
+        """局部更新条目元数据（带 version 乐观锁）"""
+        cur = self.get_item(item_key) or {}
+        version = (cur.get("data") or {}).get("version") or cur.get("version")
+        headers = {"Content-Type": "application/json"}
+        if version is not None:
+            headers["If-Unmodified-Since-Version"] = str(version)
+        status, _, body = self._write(
+            "PATCH", f"/users/0/items/{item_key}",
+            headers=headers, body=json.dumps(fields).encode("utf-8"))
+        if status not in (200, 204):
+            raise LocalApiError(status, body.decode("utf-8", "replace"))
+        return True
 
     def create_attachment(self, parent_key, title, filename, ctype):
         payload = [{
@@ -362,17 +384,29 @@ class LocalApiClient:
             raise LocalApiError(status, "successful 为空: " + body.decode("utf-8", "replace")[:300])
         return ok["0"]["key"]
 
-    def upload_file(self, item_key, file_path, filename, md5, mtime_ms, ctype):
-        """三阶段上传：授权 → POST 字节 → 注册"""
+    def upload_file(self, item_key, file_path, filename, md5, mtime_ms, ctype,
+                    existing_md5=None):
+        """三阶段上传：授权 → POST 字节 → 注册
+
+        existing_md5=None  → 新建附件，带 If-None-Match: *（仅当尚无文件）
+        existing_md5=<md5> → 覆盖已有附件，带 If-Match: <旧md5>（服务端校验后允许覆盖）
+        """
         size = os.path.getsize(file_path)
         form = urllib.parse.urlencode({
             "md5": md5, "filename": filename, "filesize": size, "mtime": mtime_ms,
         }).encode("utf-8")
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        if existing_md5:
+            headers["If-Match"] = existing_md5
+        else:
+            headers["If-None-Match"] = "*"
         status, _, body = self._write(
-            "POST", f"/users/0/items/{item_key}/file",
-            headers={"Content-Type": "application/x-www-form-urlencoded",
-                     "If-None-Match": "*"},
-            body=form)
+            "POST", f"/users/0/items/{item_key}/file", headers=headers, body=form)
+        if status == 412 and existing_md5:
+            # 旧 md5 已过时（例如手动改过文件），去掉条件头重试一次
+            headers.pop("If-Match", None)
+            status, _, body = self._write(
+                "POST", f"/users/0/items/{item_key}/file", headers=headers, body=form)
         if status != 200:
             raise LocalApiError(status, body.decode("utf-8", "replace"))
         auth = self._json(status, body)
@@ -395,11 +429,11 @@ class LocalApiClient:
         if status != 201:
             raise LocalApiError(status, resp_body.decode("utf-8", "replace"))
 
+        # 注册：不带条件头（此时 item 仍指向旧文件，加 If-None-Match 会被拒）
         reg = urllib.parse.urlencode({"upload": auth["uploadKey"]}).encode("utf-8")
         status, _, body = self._write(
             "POST", f"/users/0/items/{item_key}/file",
-            headers={"Content-Type": "application/x-www-form-urlencoded",
-                     "If-None-Match": "*"},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
             body=reg)
         if status != 204:
             raise LocalApiError(status, body.decode("utf-8", "replace"))
@@ -407,22 +441,42 @@ class LocalApiClient:
 
 def run_api_mode(args, jobs):
     client = LocalApiClient(port=args.api_port, api_key=args.api_key)
-    ok, skipped, failed = 0, 0, 0
+    ok, skipped, updated, failed = 0, 0, 0, 0
     results = []
 
     for j in jobs:
         try:
             pkey, pdesc = client.resolve_parent(j["parent_key"], j["parent_title"])
-            if client.child_attachment_exists(pkey, j["title"]):
-                print(f"[跳过] 父条目已存在同名附件 “{j['title']}”，跳过")
-                skipped += 1
-                continue
             fname = os.path.basename(j["file"]).replace("/", "_").replace("\\", "_")
             with open(j["file"], "rb") as f:
                 md5 = hashlib.md5(f.read()).hexdigest()
             mtime_ms = int(os.path.getmtime(j["file"]) * 1000)
             ctype = CONTENT_TYPES.get(os.path.splitext(fname)[1].lower(),
                                       "application/octet-stream")
+
+            exist_key = client.find_child_attachment(pkey, j["title"])
+            if exist_key:
+                if not args.update:
+                    print(f"[跳过] 父条目已存在同名附件 “{j['title']}”，跳过"
+                          f"（如需覆盖更新，加 --update）")
+                    skipped += 1
+                    continue
+                # ---- 更新已有附件：重新上传文件内容 + 刷新元数据 ----
+                before = (client.get_item(exist_key) or {}).get("data", {})
+                client.upload_file(exist_key, j["file"], fname, md5, mtime_ms, ctype,
+                                   existing_md5=before.get("md5"))
+                if before.get("filename") != fname:
+                    client.patch_item(exist_key, {"filename": fname})
+                item = client.get_item(exist_key)
+                d = (item or {}).get("data", {})
+                if d.get("md5") != md5:
+                    print(f"[警告] 更新后 md5 校验不一致: {exist_key}")
+                print(f"[更新] “{j['title']}” → key={exist_key} 父条目={pdesc}")
+                print(f"       旧md5={before.get('md5')} → 新md5={d.get('md5')}")
+                updated += 1
+                results.append((j["title"], exist_key))
+                continue
+
             new_key = client.create_attachment(pkey, j["title"], fname, ctype)
             client.upload_file(new_key, j["file"], fname, md5, mtime_ms, ctype)
             # 校验
@@ -437,8 +491,8 @@ def run_api_mode(args, jobs):
             print(f"[失败] “{j['title']}”: {e}", file=sys.stderr)
             failed += 1
 
-    print(f"\n[汇总] 成功 {ok}，跳过 {skipped}，失败 {failed}")
-    if ok:
+    print(f"\n[汇总] 新建 {ok}，更新 {updated}，跳过 {skipped}，失败 {failed}")
+    if ok or updated:
         print("[提示] API 写入已即时生效，Zotero 界面展开对应论文即可看到附件，"
               "无需重启；如需删除，直接在 Zotero 中右键附件 → 删除。")
     return 0 if failed == 0 else 1
@@ -513,6 +567,8 @@ def main():
     ap.add_argument("--data-dir", help=f"Zotero 数据目录（默认 {default_data_dir()}）")
     ap.add_argument("--backup-dir", help="数据库备份目录（默认与数据库同目录）")
     ap.add_argument("--dry-run", action="store_true", help="只检查与预演，不写数据库、不建目录")
+    ap.add_argument("--update", action="store_true",
+                    help="同名附件已存在时覆盖更新其内容（默认行为是跳过）")
     ap.add_argument("--confirm", action="store_true",
                     help="确认实际写入（不加此项只会预演，防止误写真实文献库）")
     ap.add_argument("--force", action="store_true", help="跳过 Zotero 运行检测（不推荐）")
@@ -539,7 +595,8 @@ def main():
         if args.dry_run or not args.confirm:
             for j in jobs:
                 print(f"  [预演] {j['file']}  →  父条目 {j['parent_key'] or j['parent_title']}"
-                      f"  标题 “{j['title']}”")
+                      f"  标题 “{j['title']}”"
+                      f"  （{'已存在则覆盖更新' if args.update else '已存在则跳过'}）")
             print("[预演] 未做任何写入。确认无误后加 --confirm 实际执行。")
             return
         sys.exit(run_api_mode(args, jobs))
@@ -567,7 +624,8 @@ def main():
     # 默认只预演：实际写入必须显式 --confirm，避免误写真实文献库
     if args.dry_run or not args.confirm:
         for j in jobs:
-            print(f"  [预演] {j['file']}  →  父条目 {j['parent_key'] or j['parent_title']}  标题 “{j['title']}”")
+            print(f"  [预演] {j['file']}  →  父条目 {j['parent_key'] or j['parent_title']}  标题 “{j['title']}”"
+                  f"  （{'已存在则覆盖更新' if args.update else '已存在则跳过'}）")
         print("[预演] 未做任何写入。确认无误后加 --confirm 实际执行。")
         return
 
@@ -604,6 +662,7 @@ def main():
         cur.execute("SELECT MAX(itemID) FROM items")
         next_id = (cur.fetchone()[0] or 0) + 1
         now = time.strftime("%Y-%m-%d %H:%M:%S")
+        updated = 0
 
         for j in jobs:
             parent_id, parent_desc = resolve_parent(cur, j["parent_key"], j["parent_title"])
@@ -617,7 +676,48 @@ def main():
                  WHERE a.parentItemID = ? AND v.value = ?
                 """, (title_fid, parent_id, j["title"])).fetchone()
             if dup:
-                print(f"[跳过] 父条目已存在同名附件 “{j['title']}”，跳过")
+                if not args.update:
+                    print(f"[跳过] 父条目已存在同名附件 “{j['title']}”，跳过"
+                          f"（如需覆盖更新，加 --update）")
+                    continue
+
+                # ---- 更新已有附件：替换文件内容 + 刷新 md5/mtime/版本 ----
+                att_id = dup[0]
+                att_key, old_path = cur.execute(
+                    "SELECT i.key, a.path FROM items i "
+                    "JOIN itemAttachments a ON a.itemID = i.itemID WHERE i.itemID = ?",
+                    (att_id,)).fetchone()
+                folder = os.path.join(storage_dir, att_key)
+                if os.path.isdir(folder):
+                    for old in os.listdir(folder):          # 清掉旧文件，避免同名/异名残留
+                        fp = os.path.join(folder, old)
+                        if os.path.isfile(fp):
+                            os.remove(fp)
+                else:
+                    os.makedirs(folder, exist_ok=True)
+
+                fname = os.path.basename(j["file"]).replace("/", "_").replace("\\", "_")
+                dst = os.path.join(folder, fname)
+                shutil.copy2(j["file"], dst)
+                with open(dst, "rb") as f:
+                    md5 = hashlib.md5(f.read()).hexdigest()
+                mtime_ms = int(os.path.getmtime(dst) * 1000)
+                ctype = CONTENT_TYPES.get(os.path.splitext(fname)[1].lower(),
+                                          "application/octet-stream")
+
+                cur.execute(
+                    "UPDATE itemAttachments SET contentType = ?, path = ?, syncState = 0, "
+                    "storageModTime = ?, storageHash = ?, lastProcessedModificationTime = NULL "
+                    "WHERE itemID = ?",
+                    (ctype, f"storage:{fname}", mtime_ms, md5, att_id))
+                # version+1 / synced=0 让 Zotero 下次同步时上传新版本
+                cur.execute(
+                    "UPDATE items SET version = version + 1, synced = 0, dateModified = ?, "
+                    "clientDateModified = ? WHERE itemID = ?", (now, now, att_id))
+
+                print(f"[更新] “{j['title']}” → itemID={att_id} key={att_key} 父条目={parent_desc}")
+                print(f"       文件: {dst}（原 path={old_path}）")
+                updated += 1
                 continue
 
             new_key = gen_key(existing_keys)
@@ -661,6 +761,9 @@ def main():
             next_id += 1
 
         con.commit()
+        if updated:
+            print(f"\n[汇总] 更新 {updated} 个已有附件"
+                  f"（下次同步会上传新版本；全文索引会在 Zotero 下次启动时重建）")
 
         # ---- 回读校验 ----
         print("\n[校验] 写入结果回读：")

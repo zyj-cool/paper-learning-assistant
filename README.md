@@ -209,7 +209,29 @@ python scripts/zotero_attach.py \
 
 # ③ 批量（JSON）
 python scripts/zotero_attach.py --jobs jobs.json --confirm
+
+# ④ 改了本地解析后，把新版本推到 Zotero（不加 --update 只会"跳过"）
+python scripts/zotero_attach.py --api --jobs jobs.json --update --confirm   # Zotero 运行中
+python scripts/zotero_attach.py --jobs jobs.json --update --confirm         # sqlite 模式（需退出 Zotero）
 ```
+
+### 改了本地的解析，Zotero 端会跟着变吗？
+
+**不会。** Zotero 里的附件是**独立副本**（`linkMode = imported_file`），挂载完成后 Zotero
+只保存一份 md5 快照，**不再追踪你本地那个源文件**：
+
+| 你改哪边 | 另一边会变吗 |
+|---|---|
+| 改本地的解析 PDF | ❌ 不变（库里记录的 md5 也会随之失配） |
+| 在 Zotero 里加批注/高亮 | ❌ 本地源文件不变 |
+| 不加 `--update` 重跑脚本 | ❌ 只打印「已存在同名附件，跳过」 |
+
+要同步新版本就加 `--update`：按「父论文 + 附件标题」定位已有附件，替换文件内容并刷新
+`md5`/`mtime`/`path`，把 `version+1`、`synced=0` 以触发下次同步上传。**附件条目与已有批注不会重建**，
+但批注的页码锚点可能因新版排版变化而错位；全文索引会在 Zotero 下次启动/同步时重建。
+
+> 唯一能"改本地即生效"的形态是**链接文件**（`linkMode=2`，Zotero 只存路径不复制），
+> 但链接文件**不参与官方同步**、换机或移动文件就变灰叉，故脚本不使用。
 
 **定位论文条目 key**（注意取的是论文条目，不是 PDF 附件）：
 
@@ -226,7 +248,7 @@ python -c "import sqlite3;print(sqlite3.connect('zt.sqlite').execute(
 | 默认只预演 | 不加 `--confirm` 一律不写库，防止误写真实文献库 |
 | 进程/锁检测 | Zotero 未退出时直接拒绝写入 |
 | 自动备份 | 写入前备份为 `zotero.sqlite.bak-<时间戳>`，可一键回滚 |
-| 幂等 | 同一父条目下已存在同名附件自动跳过，不产生重复 |
+| 幂等 | 同一父条目下已存在同名附件自动跳过，不产生重复；需覆盖旧版本时显式加 `--update` |
 | 回读校验 | 写入后回读 itemID/key/父条目/path/标题并打印 |
 | 失败回滚 | 任何异常 `rollback`，不留下半截数据 |
 | 临时库演练 | `--data-dir ./_zttest` 可在副本库上试跑，不碰真实数据 |
@@ -288,6 +310,9 @@ Zotero 的 item key 字符集为 `23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易
 - **`zotero_attach.py` 新增 `--api` 本地 API 模式**：Zotero 运行中即可批量挂载，无需退出
   （Zotero 10+；含授权弹窗、密钥缓存、三阶段文件上传、401 自动重授权重试）；
   另新增 `--api-probe` 探测命令
+- **`zotero_attach.py` 新增 `--update` 更新模式**：Zotero 里的附件是独立副本
+  （`imported_file`），改本地不会自动同步；加 `--update` 可按「父论文+附件标题」定位已有附件
+  并覆盖为新版本（刷新 md5/mtime/path，version+1 触发同步），保留已有批注。两种后端均支持
 - **阶段3 新增无 LaTeX 降级路线**：先检测 `xelatex`，缺失时自动降级为
   「HTML（内联CSS+Unicode公式）→ Chrome/Edge headless `--print-to-pdf`」或 python-docx 生成 Word，
   不再因环境没有 LaTeX 而中断

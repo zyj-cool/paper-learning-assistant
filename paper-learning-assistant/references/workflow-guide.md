@@ -217,7 +217,33 @@ python scripts/zotero_attach.py --jobs jobs.json --confirm
 
 脚本已内置：进程/锁检测、自动备份、幂等跳过、回读校验、失败回滚。
 
-#### 5.4 常见坑
+#### 5.4 更新已有附件（`--update`）
+
+挂载完成后，Zotero 里的附件是**独立副本**（`linkMode = imported_file`），
+只保存 md5 快照，**不再追踪本地源文件**。所以：
+
+- 改本地解析 PDF → Zotero 端**不会**变；
+- 在 Zotero 里加批注 → 本地源文件**不会**变；
+- 不加 `--update` 重跑脚本 → 只会打印「已存在同名附件，跳过」。
+
+要把新版本推上去：
+
+```bash
+python scripts/zotero_attach.py --api --jobs jobs.json --update --confirm   # Zotero 运行中
+python scripts/zotero_attach.py --jobs jobs.json --update --confirm         # sqlite 直写（需退出 Zotero）
+```
+
+内部动作：替换 `storage/<key>/` 下文件 → 更新 `storageHash`/`storageModTime`/`path` →
+`version+1`、`synced=0`（下次同步上传新版本）。附件条目与批注不重建。
+
+注意：① 批注保留但页码锚点可能错位；② 旧文件可能残留同一文件夹（Zotero 延迟清理）；
+③ 全文索引在 Zotero 下次启动/同步时重建。
+
+> 想让"改本地即生效"只能改用**链接文件**（`linkMode=2`，Zotero 只存路径不复制），
+> 但链接文件**不参与官方同步**、换机或移文件就变灰叉，不推荐。
+
+#### 5.5 常见坑
+
 
 | 现象 | 原因 | 解决 |
 |---|---|---|

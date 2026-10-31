@@ -319,6 +319,7 @@ xelatex --version 2>/dev/null && echo "有LaTeX" || echo "无LaTeX，走降级�
    >   python scripts/zotero_attach.py --api-probe                                   # 先探测可用性
    >   python scripts/zotero_attach.py --api --file "解析.pdf" --parent-key <KEY> --title "…" --confirm
    >   python scripts/zotero_attach.py --api --jobs jobs.json --confirm              # 批量
+   >   python scripts/zotero_attach.py --api --jobs jobs.json --update --confirm      # 改了本地解析后覆盖更新
    >   ```
    > - **手动 UI 导入**（零风险，适合单篇）：右键论文 → 添加附件 → 附加存储文件的副本 → 选解析 PDF。
    >
@@ -332,6 +333,36 @@ xelatex --version 2>/dev/null && echo "有LaTeX" || echo "无LaTeX，走降级�
 5. **回读校验**：脚本内置回读，确认 itemID / key / parentItemID / path / title 正确，且孤儿记录为 0。
 
 6. 请用户重新打开 Zotero，展开论文条目应能看到新附件。
+
+### 更新已有附件（`--update`）
+
+**必须向用户讲清的事实**：Zotero 里的附件是**独立副本**（`linkMode = imported_file`），
+挂载完成后 Zotero 只保存 md5 快照，**不再追踪本地源文件**。因此：
+
+| 改动发生在哪 | Zotero 端会跟着变吗 |
+|---|---|
+| 改本地的解析 PDF | ❌ 不会 |
+| 在 Zotero 里加批注/高亮 | ❌ 本地源文件不受影响 |
+| 不加 `--update` 重跑脚本 | ❌ 只会打印「已存在同名附件，跳过」 |
+
+要让 Zotero 端拿到新版本，加 `--update`（按「父论文 + 附件标题」定位已有附件并覆盖内容）：
+
+```bash
+# API 模式（推荐，Zotero 运行中即可）
+python scripts/zotero_attach.py --api --file "解析v2.pdf" --parent-key <KEY> --title "论文解析（XXX）" --update --confirm
+python scripts/zotero_attach.py --api --jobs jobs.json --update --confirm      # 批量
+
+# sqlite 直写模式（需先退出 Zotero）
+python scripts/zotero_attach.py --jobs jobs.json --update --confirm
+```
+
+**更新时做了什么**：替换 `storage/<key>/` 下的文件 → 更新 `storageHash`(md5) / `storageModTime` /
+`path` → `version+1` 且 `synced=0`（下次同步上传新版本）。附件条目与其批注不会重建。
+
+**三点提醒**：
+1. 已有的批注会保留，但**页码锚点可能因新版排版变化而错位**；
+2. 被替换的旧文件有时会残留在同一 storage 文件夹里（Zotero 自行延迟清理），无害；
+3. 全文索引不会立刻更新，Zotero 下次启动/同步时会重建。
 
 ### 数据库写入细节（出错时排查用）
 
@@ -352,7 +383,7 @@ Zotero 的 item key 字符集：`23456789ABCDEFGHIJKLMNPQRSTUVWXYZ`（不含易�
 2. **必须先备份** —— 脚本自动备份为 `zotero.sqlite.bak-<时间戳>`；回滚＝退出 Zotero 后用备份覆盖。
 3. **默认只预演** —— 不加 `--confirm` 一律不写入，防止误写真实文献库。
 4. **首次使用建议先在临时副本库演练**：`--data-dir ./_zttest`（复制 zotero.sqlite + 建空 storage/ 目录）。
-5. **幂等** —— 同一父条目下已存在同名附件时自动跳过，不会产生重复条目。
+5. **幂等** —— 同一父条目下已存在同名附件时**自动跳过**，不会产生重复条目；确需覆盖旧版本时显式加 `--update`。
 
 ---
 
